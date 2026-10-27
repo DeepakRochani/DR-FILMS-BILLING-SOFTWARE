@@ -1,0 +1,259 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #0b0f19;
+    color: #f1f5f9;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-input {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #334155;
+  color: #f8fafc;
+  transition: all 0.2s ease;
+}
+.glass-input:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+  outline: none;
+}
+
+/* Print Optimization for Invoice */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  #invoice-print-area {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  #printable-payment-receipt {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 24px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .break-inside-avoid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+
+/* Specific styling when rendering PDF via html2pdf */
+.pdf-rendering {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+#invoice-paper.pdf-rendering,
+#statement-paper.pdf-rendering,
+.pdf-rendering#invoice-paper,
+.pdf-rendering#statement-paper,
+.pdf-rendering #invoice-paper,
+.pdf-rendering #statement-paper {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  padding: 16px 24px !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+#printable-payment-receipt.pdf-rendering,
+.pdf-rendering#printable-payment-receipt,
+.pdf-rendering #printable-payment-receipt {
+  padding: 24px 28px !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 1040px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+
+.pdf-rendering #printable-payment-receipt .truncate {
+  overflow: visible !important;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  line-height: 1.5 !important;
+}
+
+/* Ensure clean proportions & prevent accidental multi-page breaks for standard invoices */
+.pdf-rendering .pdf-accent-bar {
+  margin-bottom: 0.625rem !important;
+}
+
+.pdf-rendering .pdf-header-block {
+  padding-bottom: 0.5rem !important;
+}
+
+/* Ensure two-column desktop layouts in PDF export regardless of device viewport */
+.pdf-rendering .pdf-row-flex {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+}
+
+.pdf-rendering .pdf-grid-2col {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 1rem !important;
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+.pdf-rendering .pdf-status-box {
+  padding: 0.5rem 0.75rem !important;
+}
+
+.pdf-rendering .pdf-table-container {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+}
+
+.pdf-rendering table thead th {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+}
+
+.pdf-rendering table tbody td {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+}
+
+.pdf-rendering .pdf-grid-12col {
+  display: grid !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+  gap: 1rem !important;
+  padding-top: 0.375rem !important;
+}
+
+.pdf-rendering .pdf-payment-card {
+  padding: 0.5rem 0.625rem !important;
+}
+
+.pdf-rendering .pdf-terms-block {
+  margin-top: 0.35rem !important;
+  padding-top: 0.35rem !important;
+}
+
+.pdf-rendering .pdf-footer-row {
+  padding-top: 0.35rem !important;
+  margin-top: 0.35rem !important;
+}
+
+.pdf-rendering .pdf-signature-line {
+  height: 1.75rem !important;
+}
+
+.pdf-rendering .pdf-col-7 {
+  grid-column: span 7 / span 7 !important;
+}
+
+.pdf-rendering .pdf-col-5 {
+  grid-column: span 5 / span 5 !important;
+}
+
+.pdf-rendering .pdf-text-right {
+  text-align: right !important;
+}
+
+.pdf-rendering .pdf-meta-row {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  width: 100% !important;
+}
+
+.paid-stamp {
+  border: 3.5px solid #059669 !important;
+  color: #059669 !important;
+  text-transform: uppercase;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  transform: rotate(-12deg);
+  border-radius: 0.75rem;
+}
+.pdf-rendering .paid-stamp {
+  border-color: #059669 !important;
+  color: #059669 !important;
+}
+
