@@ -34,6 +34,9 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@sentry')) {
                 return 'vendor-sentry';
               }
+              if (id.includes('@supabase')) {
+                return 'vendor-supabase';
+              }
               if (id.includes('react') || id.includes('scheduler') || id.includes('dexie')) {
                 return 'vendor-core';
               }

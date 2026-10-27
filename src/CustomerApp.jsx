@@ -38,6 +38,7 @@ import { PinLockScreen } from './components/PinLockScreen';
 import { calculateSubscriptionStatus, preVerifyLicenseKey } from './utils/licenseManager';
 import { isFeatureAllowedByLicense } from './utils/licenseCrypto';
 import { initGoogleSheetsSync, scheduleAutoSync } from './utils/googleSheetsSync';
+import { setupRealtimeSync } from './utils/supabaseSync';
 
 import { initCrossOriginBridge, isSyncChannelMode, mergeFromCounterpart } from './utils/crossOriginSync';
 import { recordUserActivity, shouldLockOnResume } from './utils/security';
@@ -253,6 +254,16 @@ export function CustomerApp() {
       setIsDbReady(true);
       initGoogleSheetsSync();
       initCrossOriginBridge();
+      try {
+        setupRealtimeSync(({ table, eventType }) => {
+          setSyncToast({
+            type: 'synced',
+            message: `Cloud sync: ${eventType} in ${table}`
+          });
+        });
+      } catch (err) {
+        console.warn('Realtime sync setup warning:', err);
+      }
     });
   }, []);
 

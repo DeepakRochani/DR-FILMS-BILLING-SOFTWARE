@@ -11,6 +11,7 @@ import {
   CreditCard, 
   CheckCircle, 
   AlertTriangle,
+  AlertCircle,
   Clapperboard,
   HardDrive,
   ShieldCheck,
@@ -51,6 +52,9 @@ import { isSentryEnabled, setSentryEnabled } from '../utils/sentry';
 import { RestoreSheetModal } from '../components/RestoreSheetModal';
 import { testGoogleSheetsConnection, fetchGoogleSheetBackup, triggerManualSync, extractSpreadsheetId, scheduleAutoSync } from '../utils/googleSheetsSync';
 import { normalizeEventTypes } from '../utils/eventTypeUtils';
+import { getSupabase, testSupabaseConnection, SUPABASE_PROJECT_ID, SUPABASE_REGION, DEFAULT_SUPABASE_URL } from '../config/supabase';
+import { pushAllToSupabase, pullAllFromSupabase, getSyncMetadata } from '../utils/supabaseSync';
+import { SupabaseAuthModal } from '../components/SupabaseAuthModal';
 import { 
   getSecurityProfile, 
   saveSecurityProfile, 
@@ -134,6 +138,87 @@ export function SettingsPage() {
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [showScriptGuide, setShowScriptGuide] = useState(false);
   const [hasCopiedScript, setHasCopiedScript] = useState(false);
+
+  // Supabase Cloud State
+  const [isSupabaseAuthOpen, setIsSupabaseAuthOpen] = useState(false);
+  const [supabaseUser, setSupabaseUser] = useState(null);
+  const [isTestingSupabase, setIsTestingSupabase] = useState(false);
+  const [supabaseTestStatus, setSupabaseTestStatus] = useState(null);
+  const [isPushingSupabase, setIsPushingSupabase] = useState(false);
+  const [isPullingSupabase, setIsPullingSupabase] = useState(false);
+  const [supabaseSyncMessage, setSupabaseSyncMessage] = useState('');
+  const [supabaseSyncMeta, setSupabaseSyncMeta] = useState(getSyncMetadata());
+
+  useEffect(() => {
+    try {
+      const supabase = getSupabase();
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        setSupabaseUser(user);
+      });
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSupabaseUser(session?.user ?? null);
+      });
+      return () => subscription?.unsubscribe();
+    } catch {
+      // Ignore initial loading
+    }
+  }, []);
+
+  const handleTestSupabase = async () => {
+    setIsTestingSupabase(true);
+    setSupabaseTestStatus(null);
+    try {
+      const res = await testSupabaseConnection();
+      if (res.ok) {
+        setSupabaseTestStatus({ ok: true, message: 'Connected to Supabase PostgreSQL database successfully.' });
+      } else {
+        setSupabaseTestStatus({ ok: false, message: res.error || 'Connection failed' });
+      }
+    } catch (err) {
+      setSupabaseTestStatus({ ok: false, message: err.message });
+    } finally {
+      setIsTestingSupabase(false);
+    }
+  };
+
+  const handlePushSupabase = async () => {
+    setIsPushingSupabase(true);
+    setSupabaseSyncMessage('');
+    try {
+      const res = await pushAllToSupabase();
+      setSupabaseSyncMeta(getSyncMetadata());
+      if (res.ok) {
+        setSupabaseSyncMessage(`Successfully backed up ${res.results.totalSynced} record(s) to Supabase Cloud.`);
+      } else {
+        setSupabaseSyncMessage(`Synced with warnings: ${res.results.errors.join(', ')}`);
+      }
+    } catch (err) {
+      setSupabaseSyncMessage(`Push error: ${err.message}`);
+    } finally {
+      setIsPushingSupabase(false);
+    }
+  };
+
+  const handlePullSupabase = async () => {
+    if (!window.confirm('Pull from Supabase will merge cloud records into your local database. Continue?')) {
+      return;
+    }
+    setIsPullingSupabase(true);
+    setSupabaseSyncMessage('');
+    try {
+      const res = await pullAllFromSupabase();
+      setSupabaseSyncMeta(getSyncMetadata());
+      if (res.ok) {
+        setSupabaseSyncMessage(`Successfully restored/merged ${res.results.totalImported} record(s) from Supabase Cloud.`);
+      } else {
+        setSupabaseSyncMessage(`Pull completed with warnings: ${res.results.errors.join(', ')}`);
+      }
+    } catch (err) {
+      setSupabaseSyncMessage(`Pull error: ${err.message}`);
+    } finally {
+      setIsPullingSupabase(false);
+    }
+  };
 
   // Security & App PIN Lock State
   const securityProfile = useLiveQuery(() => db.settings.get('security_profile'));
@@ -2693,6 +2778,143 @@ function doGet(e) {
         </div>
       </div>
 
+      {/* Card 5: Supabase Cloud Database & Multi-Device Sync */}
+      <div className="glass-card rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <Cloud className="w-5 h-5 text-amber-400" />
+            <h3 className="text-base font-bold text-slate-100">
+              Supabase Cloud Database & Multi-Device Sync
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 border border-amber-500/30 text-amber-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Project: {SUPABASE_PROJECT_ID}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Project details card */}
+        <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div>
+              <span className="text-slate-400">Endpoint: </span>
+              <span className="font-mono text-slate-200">{DEFAULT_SUPABASE_URL}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">Region: </span>
+              <span className="font-mono text-slate-200">{SUPABASE_REGION} (Asia Pacific)</span>
+            </div>
+          </div>
+          <div className="text-xs text-slate-400 leading-relaxed">
+            12 PostgreSQL tables initialized with Row Level Security (RLS) and Realtime replication active. Invoices, customers, services, custom charges, quotes, projects, and expenses sync seamlessly across multiple devices.
+          </div>
+        </div>
+
+        {/* Account Authentication Status */}
+        <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-amber-400" />
+              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                Cloud Authentication State
+              </h4>
+            </div>
+            <p className="text-xs text-slate-400">
+              {supabaseUser ? (
+                <span>Signed in as <strong className="text-emerald-300 font-mono">{supabaseUser.email}</strong></span>
+              ) : (
+                <span>Anonymous Key Access (Studio Default). Sign in for user-level cloud access.</span>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSupabaseAuthOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+          >
+            <span>{supabaseUser ? 'Manage Account' : 'Sign In / Sign Up'}</span>
+          </button>
+        </div>
+
+        {/* Status / Message Display */}
+        {supabaseTestStatus && (
+          <div className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 ${
+            supabaseTestStatus.ok
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}>
+            {supabaseTestStatus.ok ? (
+              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{supabaseTestStatus.message}</span>
+          </div>
+        )}
+
+        {supabaseSyncMessage && (
+          <div className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-xs text-sky-200 flex items-center gap-2.5">
+            <Info className="w-4 h-4 text-sky-400 shrink-0" />
+            <span>{supabaseSyncMessage}</span>
+          </div>
+        )}
+
+        {/* Sync Actions */}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button
+            type="button"
+            disabled={isTestingSupabase}
+            onClick={handleTestSupabase}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            {isTestingSupabase ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>{isTestingSupabase ? 'Testing Connection...' : 'Test Connection'}</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isPushingSupabase}
+            onClick={handlePushSupabase}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            {isPushingSupabase ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
+            ) : (
+              <CloudUpload className="w-3.5 h-3.5 text-slate-950" />
+            )}
+            <span>{isPushingSupabase ? 'Pushing to Cloud...' : 'Push All to Supabase Cloud'}</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isPullingSupabase}
+            onClick={handlePullSupabase}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/30 hover:bg-slate-800 text-amber-300 font-semibold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            {isPullingSupabase ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <CloudDownload className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>{isPullingSupabase ? 'Pulling from Cloud...' : 'Pull / Restore from Cloud'}</span>
+          </button>
+        </div>
+
+        {/* Metadata Footer */}
+        {supabaseSyncMeta?.lastPush && (
+          <div className="text-[11px] text-slate-500 pt-1 flex items-center gap-2">
+            <Clock className="w-3 h-3 text-slate-600" />
+            <span>Last push: {new Date(supabaseSyncMeta.lastPush).toLocaleString()}</span>
+          </div>
+        )}
+      </div>
+
       {/* Card 5: Security & App PIN Lock */}
       <div className="glass-card rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -3222,6 +3444,10 @@ function doGet(e) {
         onClose={() => setShowRestoreModal(false)}
         backupInfo={backupInfo}
         onConfirmRestore={handleConfirmRestore}
+      />
+      <SupabaseAuthModal
+        isOpen={isSupabaseAuthOpen}
+        onClose={() => setIsSupabaseAuthOpen(false)}
       />
     </div>
   );
