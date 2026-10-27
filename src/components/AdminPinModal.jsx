@@ -126,7 +126,6 @@ export function AdminPinModal({ isOpen, onClose, onAuthenticated }) {
 
         resetLockoutState();
         if (onAuthenticated) onAuthenticated();
-        if (onClose) onClose();
         return;
       }
 
@@ -147,7 +146,6 @@ export function AdminPinModal({ isOpen, onClose, onAuthenticated }) {
           details: 'Admin Master PIN successfully verified.'
         });
         if (onAuthenticated) onAuthenticated();
-        if (onClose) onClose();
       } else {
         const lockRes = recordFailedAttempt();
         if (lockRes.isLockedOut) {
