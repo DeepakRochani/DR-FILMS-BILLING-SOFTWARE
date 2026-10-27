@@ -18,7 +18,10 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: isAdmin 
           ? resolve(__dirname, 'admin.html') 
-          : resolve(__dirname, 'index.html'),
+          : {
+              main: resolve(__dirname, 'index.html'),
+              admin: resolve(__dirname, 'admin.html')
+            },
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {

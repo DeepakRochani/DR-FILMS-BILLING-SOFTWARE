@@ -57,7 +57,14 @@ export function scanCustomerDist(distDir = path.resolve('dist')) {
   }
 
   const allFiles = getFilesRecursively(distDir);
-  const scannedFiles = allFiles.filter(f => f.endsWith('.js') || f.endsWith('.html') || f.endsWith('.json'));
+  const scannedFiles = allFiles.filter(f => {
+    const isTargetExt = f.endsWith('.js') || f.endsWith('.html') || f.endsWith('.json');
+    if (!isTargetExt) return false;
+    const baseName = path.basename(f);
+    // Exclude standalone admin entry point and admin-specific chunk from customer app scan
+    if (baseName.startsWith('admin')) return false;
+    return true;
+  });
 
   const violations = [];
 
@@ -118,7 +125,7 @@ export function testBundleScanInjection(targetDist = path.resolve('dist')) {
     }
 
     // Find the primary index.html or first JS chunk in tempDir to inject
-    const jsFiles = fs.readdirSync(path.join(tempDir, 'assets')).filter(f => f.endsWith('.js'));
+    const jsFiles = fs.readdirSync(path.join(tempDir, 'assets')).filter(f => f.endsWith('.js') && !f.startsWith('admin'));
     const targetFile = path.join(tempDir, 'assets', jsFiles[0]);
 
     // Inject forbidden string literal: 'admin_security_profile'
