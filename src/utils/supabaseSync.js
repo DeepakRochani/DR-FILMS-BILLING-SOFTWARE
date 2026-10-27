@@ -436,3 +436,138 @@ export function setupRealtimeSync(onRemoteChange) {
     }
   };
 }
+
+/**
+ * Bidirectional intelligent sync:
+ * Compares local Dexie records and remote Supabase rows across all tables.
+ * Pushes local records that are missing or newer in Supabase.
+ * Pulls remote rows that are missing or newer into Dexie.
+ * Ensures localhost and live sites have identical data.
+ */
+export async function syncBidirectional() {
+  saveSyncMetadata({ status: 'syncing', lastError: null });
+  const supabase = getSupabase();
+  const summary = { pushed: 0, pulled: 0, errors: [] };
+
+  try {
+    for (const [dexieTable, supaTable] of Object.entries(TABLE_MAP)) {
+      if (!db[dexieTable]) continue;
+
+      // 1. Fetch all local records
+      const localItems = await db[dexieTable].toArray();
+
+      // 2. Fetch all remote rows from Supabase
+      const { data: remoteRows, error } = await supabase.from(supaTable).select('*');
+      if (error) {
+        summary.errors.push(`${dexieTable}: ${error.message}`);
+        continue;
+      }
+
+      const remoteMap = new Map((remoteRows || []).map(r => [String(r.id ?? r.key), r]));
+      const localMap = new Map(localItems.map(item => [String(item.id ?? item.key), item]));
+
+      const toPush = [];
+      const toPull = [];
+
+      // Check local items to push
+      for (const item of localItems) {
+        const key = String(item.id ?? item.key);
+        const remote = remoteMap.get(key);
+
+        if (!remote) {
+          toPush.push(formatRecordForSupabase(dexieTable, item));
+        } else {
+          // Compare timestamps
+          const localTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
+          const remoteTime = new Date(remote.updated_at || remote.created_at || 0).getTime();
+          if (localTime > remoteTime) {
+            toPush.push(formatRecordForSupabase(dexieTable, item));
+          }
+        }
+      }
+
+      // Check remote rows to pull
+      for (const remote of (remoteRows || [])) {
+        const key = String(remote.id ?? remote.key);
+        const local = localMap.get(key);
+
+        if (!local) {
+          toPull.push(formatRowForDexie(dexieTable, remote));
+        } else {
+          const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
+          const remoteTime = new Date(remote.updated_at || remote.created_at || 0).getTime();
+          if (remoteTime > localTime) {
+            toPull.push(formatRowForDexie(dexieTable, remote));
+          }
+        }
+      }
+
+      // Apply push in chunks of 50
+      if (toPush.length > 0) {
+        for (let i = 0; i < toPush.length; i += 50) {
+          const chunk = toPush.slice(i, i + 50);
+          const { error: pushErr } = await supabase
+            .from(supaTable)
+            .upsert(chunk, { onConflict: dexieTable === 'settings' ? 'key' : 'id' });
+          if (pushErr) {
+            summary.errors.push(`${dexieTable} push: ${pushErr.message}`);
+          } else {
+            summary.pushed += chunk.length;
+          }
+        }
+      }
+
+      // Apply pull to local Dexie
+      if (toPull.length > 0) {
+        await db.transaction('rw', db[dexieTable], async () => {
+          for (const item of toPull) {
+            await db[dexieTable].put(item);
+          }
+        });
+        summary.pulled += toPull.length;
+      }
+    }
+
+    const timestamp = new Date().toISOString();
+    saveSyncMetadata({
+      status: summary.errors.length > 0 ? 'partial_error' : 'synced',
+      lastPush: summary.pushed > 0 ? timestamp : undefined,
+      lastPull: summary.pulled > 0 ? timestamp : undefined,
+      lastError: summary.errors.length > 0 ? summary.errors.join('; ') : null
+    });
+
+    return { ok: summary.errors.length === 0, summary, timestamp };
+  } catch (err) {
+    console.error('Fatal bidirectional sync error:', err);
+    saveSyncMetadata({ status: 'error', lastError: err.message });
+    return { ok: false, error: err.message, summary };
+  }
+}
+
+let hooksRegistered = false;
+
+/**
+ * Register Dexie lifecycle hooks to auto-sync changes to Supabase
+ */
+export function registerDexieSyncHooks(databaseInstance) {
+  if (hooksRegistered || !databaseInstance || typeof window === 'undefined') return;
+
+  const tables = Object.keys(TABLE_MAP);
+  for (const tableName of tables) {
+    const table = databaseInstance[tableName];
+    if (table && typeof table.hook === 'function') {
+      table.hook('creating', () => {
+        triggerDebouncedSupabaseSync(1500);
+      });
+      table.hook('updating', () => {
+        triggerDebouncedSupabaseSync(1500);
+      });
+      table.hook('deleting', () => {
+        triggerDebouncedSupabaseSync(1500);
+      });
+    }
+  }
+
+  hooksRegistered = true;
+}
+

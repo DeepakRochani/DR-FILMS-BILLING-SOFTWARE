@@ -20,18 +20,33 @@ import {
   Briefcase,
   FileText,
   ShieldCheck,
-  Award
+  Award,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { calculateSubscriptionStatus } from '../utils/licenseManager';
 import { isFeatureAllowedByLicense } from '../utils/licenseCrypto';
+import { syncBidirectional } from '../utils/supabaseSync';
 
 
 export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseApp, onOpenAdminPortal, children }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
+  const handleCloudSync = async () => {
+    setIsCloudSyncing(true);
+    try {
+      await syncBidirectional();
+    } catch (e) {
+      console.warn('Manual cloud sync failed:', e);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
 
   // Live count of active unpaid invoices (excluding soft-deleted bills)
   const unpaidCount = useLiveQuery(
@@ -382,6 +397,24 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
                 <Download className="w-4 h-4" />
               </button>
             )}
+            <button
+              type="button"
+              disabled={isCloudSyncing}
+              onClick={handleCloudSync}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                isCloudSyncing
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700'
+              }`}
+              title="Sync with Cloud (Keeps Localhost & Live in Parity)"
+            >
+              {isCloudSyncing ? (
+                <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+              ) : (
+                <Cloud className="w-3.5 h-3.5 text-amber-400" />
+              )}
+              <span className="hidden sm:inline">{isCloudSyncing ? 'Syncing...' : 'Cloud Sync'}</span>
+            </button>
             <button
               type="button"
               onClick={onNewInvoice}

@@ -13,22 +13,30 @@ const STORAGE_KEY_KEY = 'drfilms_supabase_anon_key';
  * Get active Supabase URL (custom override from localStorage, env var, or default)
  */
 export function getActiveSupabaseUrl() {
-  return (
-    localStorage.getItem(STORAGE_KEY_URL) ||
-    import.meta.env.VITE_SUPABASE_URL ||
-    DEFAULT_SUPABASE_URL
-  );
+  try {
+    return (
+      (typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY_URL)) ||
+      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
+      DEFAULT_SUPABASE_URL
+    );
+  } catch {
+    return DEFAULT_SUPABASE_URL;
+  }
 }
 
 /**
  * Get active Supabase Anon Key (custom override from localStorage, env var, or default)
  */
 export function getActiveSupabaseAnonKey() {
-  return (
-    localStorage.getItem(STORAGE_KEY_KEY) ||
-    import.meta.env.VITE_SUPABASE_ANON_KEY ||
-    DEFAULT_SUPABASE_ANON_KEY
-  );
+  try {
+    return (
+      (typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY_KEY)) ||
+      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
+      DEFAULT_SUPABASE_ANON_KEY
+    );
+  } catch {
+    return DEFAULT_SUPABASE_ANON_KEY;
+  }
 }
 
 let supabaseInstance = null;

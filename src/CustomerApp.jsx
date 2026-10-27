@@ -38,7 +38,7 @@ import { PinLockScreen } from './components/PinLockScreen';
 import { calculateSubscriptionStatus, preVerifyLicenseKey } from './utils/licenseManager';
 import { isFeatureAllowedByLicense } from './utils/licenseCrypto';
 import { initGoogleSheetsSync, scheduleAutoSync } from './utils/googleSheetsSync';
-import { setupRealtimeSync } from './utils/supabaseSync';
+import { setupRealtimeSync, syncBidirectional, registerDexieSyncHooks } from './utils/supabaseSync';
 
 import { initCrossOriginBridge, isSyncChannelMode, mergeFromCounterpart } from './utils/crossOriginSync';
 import { recordUserActivity, shouldLockOnResume } from './utils/security';
@@ -250,19 +250,21 @@ export function CustomerApp() {
   }, [securityProfile, isLocked]);
 
   useEffect(() => {
-    initDatabase().then(() => {
+    initDatabase().then(async () => {
       setIsDbReady(true);
       initGoogleSheetsSync();
       initCrossOriginBridge();
       try {
+        registerDexieSyncHooks(db);
         setupRealtimeSync(({ table, eventType }) => {
           setSyncToast({
             type: 'synced',
             message: `Cloud sync: ${eventType} in ${table}`
           });
         });
+        await syncBidirectional();
       } catch (err) {
-        console.warn('Realtime sync setup warning:', err);
+        console.warn('Supabase sync notice:', err);
       }
     });
   }, []);
