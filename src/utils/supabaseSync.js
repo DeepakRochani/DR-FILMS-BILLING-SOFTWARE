@@ -248,14 +248,19 @@ export function formatRowForDexie(dexieTable, row) {
 /**
  * Push all local tables to Supabase Cloud
  */
-export async function pushAllToSupabase() {
+export async function pushAllToSupabase(targetTables = null) {
   saveSyncMetadata({ status: 'pushing', lastError: null });
   const supabase = getSupabase();
   const results = { totalSynced: 0, byTable: {}, errors: [] };
 
+  const tablesToPush = Array.isArray(targetTables) && targetTables.length > 0
+    ? targetTables.filter(t => TABLE_MAP[t])
+    : Object.keys(TABLE_MAP);
+
   try {
-    for (const [dexieTable, supaTable] of Object.entries(TABLE_MAP)) {
-      if (!db[dexieTable]) continue;
+    for (const dexieTable of tablesToPush) {
+      const supaTable = TABLE_MAP[dexieTable];
+      if (!db[dexieTable] || !supaTable) continue;
       const records = await db[dexieTable].toArray();
 
       if (records.length === 0) {
@@ -374,27 +379,49 @@ export async function syncRecordToSupabase(dexieTable, item) {
   }
 }
 
+export let isApplyingRemoteChange = false;
+
+export function getIsApplyingRemoteChange() {
+  return isApplyingRemoteChange;
+}
+
+export function setIsApplyingRemoteChange(flag) {
+  isApplyingRemoteChange = Boolean(flag);
+}
+
 let syncDebounceTimer = null;
+const dirtyTables = new Set();
 
 /**
- * Debounced background sync trigger
+ * Debounced background sync trigger with selective table tracking
  */
-export function triggerDebouncedSupabaseSync(delayMs = 3000) {
+export function triggerDebouncedSupabaseSync(delayMs = 3000, tableName = null) {
+  if (isApplyingRemoteChange) return;
+
+  if (tableName) {
+    dirtyTables.add(tableName);
+  }
+
   if (syncDebounceTimer) {
     clearTimeout(syncDebounceTimer);
   }
 
-  syncDebounceTimer = setTimeout(() => {
-    pushAllToSupabase().catch(err => {
+  syncDebounceTimer = setTimeout(async () => {
+    if (isApplyingRemoteChange) return;
+    try {
+      const tablesToPush = dirtyTables.size > 0 ? Array.from(dirtyTables) : null;
+      dirtyTables.clear();
+      await pushAllToSupabase(tablesToPush);
+    } catch (err) {
       console.warn('Background Supabase push error:', err);
-    });
+    }
   }, delayMs);
 }
 
 let activeChannel = null;
 
 /**
- * Setup Realtime multi-device subscription
+ * Setup Realtime multi-device subscription with echo-cancellation guard
  */
 export function setupRealtimeSync(onRemoteChange) {
   if (activeChannel) {
@@ -412,15 +439,28 @@ export function setupRealtimeSync(onRemoteChange) {
 
       if (!dexieTable || !db[dexieTable]) return;
 
-      if (payload.eventType === 'DELETE') {
-        const delId = payload.old?.id ?? payload.old?.key;
-        if (delId) {
-          const numId = Number(delId);
-          await db[dexieTable].delete(!Number.isNaN(numId) ? numId : delId);
+      isApplyingRemoteChange = true;
+      try {
+        if (payload.eventType === 'DELETE') {
+          const delId = payload.old?.id ?? payload.old?.key;
+          if (delId) {
+            const numId = Number(delId);
+            await db[dexieTable].delete(!Number.isNaN(numId) ? numId : delId);
+          }
+        } else if (payload.new) {
+          const item = formatRowForDexie(dexieTable, payload.new);
+          // Only update local Dexie if data actually changed to avoid spurious re-renders
+          const current = await db[dexieTable].get(item.id ?? item.key);
+          if (JSON.stringify(current) !== JSON.stringify(item)) {
+            await db[dexieTable].put(item);
+          }
         }
-      } else if (payload.new) {
-        const item = formatRowForDexie(dexieTable, payload.new);
-        await db[dexieTable].put(item);
+      } catch (err) {
+        console.warn(`Realtime local sync error on ${dexieTable}:`, err);
+      } finally {
+        setTimeout(() => {
+          isApplyingRemoteChange = false;
+        }, 300);
       }
 
       if (typeof onRemoteChange === 'function') {
@@ -476,6 +516,16 @@ export async function syncBidirectional() {
 
         if (!remote) {
           toPush.push(formatRecordForSupabase(dexieTable, item));
+        } else if (dexieTable === 'settings') {
+          // For settings, compare payload content directly to prevent false diff loops
+          const remoteDexie = formatRowForDexie(dexieTable, remote);
+          if (JSON.stringify(item) !== JSON.stringify(remoteDexie)) {
+            const localTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
+            const remoteTime = new Date(remote.updated_at || remote.created_at || 0).getTime();
+            if (localTime > remoteTime) {
+              toPush.push(formatRecordForSupabase(dexieTable, item));
+            }
+          }
         } else {
           // Compare timestamps
           const localTime = new Date(item.updatedAt || item.createdAt || 0).getTime();
@@ -493,6 +543,16 @@ export async function syncBidirectional() {
 
         if (!local) {
           toPull.push(formatRowForDexie(dexieTable, remote));
+        } else if (dexieTable === 'settings') {
+          // For settings, compare payload content directly to prevent false diff loops
+          const remoteDexie = formatRowForDexie(dexieTable, remote);
+          if (JSON.stringify(local) !== JSON.stringify(remoteDexie)) {
+            const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
+            const remoteTime = new Date(remote.updated_at || remote.created_at || 0).getTime();
+            if (remoteTime > localTime) {
+              toPull.push(remoteDexie);
+            }
+          }
         } else {
           const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
           const remoteTime = new Date(remote.updated_at || remote.created_at || 0).getTime();
@@ -517,13 +577,20 @@ export async function syncBidirectional() {
         }
       }
 
-      // Apply pull to local Dexie
+      // Apply pull to local Dexie with remote change guard
       if (toPull.length > 0) {
-        await db.transaction('rw', db[dexieTable], async () => {
-          for (const item of toPull) {
-            await db[dexieTable].put(item);
-          }
-        });
+        isApplyingRemoteChange = true;
+        try {
+          await db.transaction('rw', db[dexieTable], async () => {
+            for (const item of toPull) {
+              await db[dexieTable].put(item);
+            }
+          });
+        } finally {
+          setTimeout(() => {
+            isApplyingRemoteChange = false;
+          }, 300);
+        }
         summary.pulled += toPull.length;
       }
     }
@@ -557,13 +624,16 @@ export function registerDexieSyncHooks(databaseInstance) {
     const table = databaseInstance[tableName];
     if (table && typeof table.hook === 'function') {
       table.hook('creating', () => {
-        triggerDebouncedSupabaseSync(1500);
+        if (isApplyingRemoteChange) return;
+        triggerDebouncedSupabaseSync(3000, tableName);
       });
       table.hook('updating', () => {
-        triggerDebouncedSupabaseSync(1500);
+        if (isApplyingRemoteChange) return;
+        triggerDebouncedSupabaseSync(3000, tableName);
       });
       table.hook('deleting', () => {
-        triggerDebouncedSupabaseSync(1500);
+        if (isApplyingRemoteChange) return;
+        triggerDebouncedSupabaseSync(3000, tableName);
       });
     }
   }

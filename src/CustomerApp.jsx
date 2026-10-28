@@ -256,18 +256,23 @@ export function CustomerApp() {
       initCrossOriginBridge();
       try {
         registerDexieSyncHooks(db);
-        setupRealtimeSync(({ table, eventType }) => {
-          setSyncToast({
-            type: 'synced',
-            message: `Cloud sync: ${eventType} in ${table}`
-          });
-        });
+        setupRealtimeSync();
         await syncBidirectional();
       } catch (err) {
         console.warn('Supabase sync notice:', err);
       }
     });
   }, []);
+
+  // Auto-dismiss floating toast notifications after 4 seconds
+  useEffect(() => {
+    if (syncToast) {
+      const timer = setTimeout(() => {
+        setSyncToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncToast]);
 
   useEffect(() => {
     const handleCounterpartFound = (e) => {
