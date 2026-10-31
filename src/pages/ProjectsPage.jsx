@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   Briefcase, 
@@ -90,14 +90,43 @@ export function ProjectsPage({ onViewInvoice, onGoToTrash, initialSelectedProjec
     return map;
   }, [invoices]);
 
+  // Customer ID / Phone lookup map for live client sync
+  const customerMap = useMemo(() => {
+    const map = new Map();
+    customers.forEach(c => {
+      if (c.id) map.set(Number(c.id), c);
+      if (c.phone) {
+        const clean = String(c.phone).replace(/\D/g, '');
+        if (clean) map.set(`phone:${clean}`, c);
+      }
+    });
+    return map;
+  }, [customers]);
+
+  const resolveProjectClient = useCallback((proj) => {
+    if (!proj) return null;
+    const cid = proj.customerId || proj.clientId;
+    if (cid && customerMap.has(Number(cid))) {
+      return customerMap.get(Number(cid));
+    }
+    const cleanPhone = proj.clientPhone ? String(proj.clientPhone).replace(/\D/g, '') : '';
+    if (cleanPhone && customerMap.has(`phone:${cleanPhone}`)) {
+      return customerMap.get(`phone:${cleanPhone}`);
+    }
+    return null;
+  }, [customerMap]);
+
   // Filter and search projects
   const filteredProjects = useMemo(() => {
     return activeProjects.filter(proj => {
       // Search query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
+        const liveCust = resolveProjectClient(proj);
+        const resolvedName = (liveCust?.name || proj.clientName || '').toLowerCase();
+        const resolvedCompany = (liveCust?.company || '').toLowerCase();
         const titleMatch = (proj.title || '').toLowerCase().includes(q);
-        const clientMatch = (proj.clientName || '').toLowerCase().includes(q);
+        const clientMatch = resolvedName.includes(q) || resolvedCompany.includes(q);
         const eventMatch = (proj.eventType || '').toLowerCase().includes(q);
         const invMatch = (proj.invoiceNumber || '').toString().toLowerCase().includes(q);
         if (!titleMatch && !clientMatch && !eventMatch && !invMatch) {
@@ -417,7 +446,7 @@ export function ProjectsPage({ onViewInvoice, onGoToTrash, initialSelectedProjec
               onClick={() => setSearchQuery('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
             >
-              ✕
+              &times;
             </button>
           )}
         </div>
@@ -550,11 +579,11 @@ export function ProjectsPage({ onViewInvoice, onGoToTrash, initialSelectedProjec
                                   {proj.title}
                                 </h5>
                                 <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-1">
-                                  <span className="text-slate-300 font-medium truncate">{proj.clientName || 'Valued Client'}</span>
+                                  <span className="text-slate-300 font-medium truncate">{resolveProjectClient(proj)?.name || proj.clientName || 'Valued Client'}</span>
                                   {proj.clientPhone && (
                                     <>
                                       <span>•</span>
-                                      <span className="font-mono text-[10px]">{proj.clientPhone}</span>
+                                      <span className="font-mono text-[10px]">{resolveProjectClient(proj)?.phone || proj.clientPhone}</span>
                                     </>
                                   )}
                                 </div>
@@ -718,10 +747,10 @@ export function ProjectsPage({ onViewInvoice, onGoToTrash, initialSelectedProjec
                           </td>
 
                           <td className="py-3.5 px-4 text-slate-300">
-                            <span className="font-medium block">{proj.clientName || '—'}</span>
-                            {proj.clientPhone && (
+                            <span className="font-medium block">{resolveProjectClient(proj)?.name || proj.clientName || '—'}</span>
+                            {(resolveProjectClient(proj)?.phone || proj.clientPhone) && (
                               <span className="text-[10px] text-slate-500 font-mono block">
-                                {proj.clientPhone}
+                                {resolveProjectClient(proj)?.phone || proj.clientPhone}
                               </span>
                             )}
                           </td>

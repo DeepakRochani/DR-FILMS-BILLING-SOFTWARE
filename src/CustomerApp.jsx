@@ -13,6 +13,7 @@ import { ChargesPage } from './pages/ChargesPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { exportDatabaseJSON, isWeeklyBackupOverdue } from './db/backup';
+import { reconcileAllCustomerSnapshots } from './utils/customerSync';
 
 import { TrashPage } from './pages/TrashPage';
 const HourCalculatorPage = React.lazy(() => import('./pages/HourCalculatorPage').then(m => ({ default: m.HourCalculatorPage || m.default })));
@@ -254,6 +255,11 @@ export function CustomerApp() {
       setIsDbReady(true);
       initGoogleSheetsSync();
       initCrossOriginBridge();
+      try {
+        await reconcileAllCustomerSnapshots();
+      } catch (err) {
+        console.warn('Customer snapshot reconciliation notice:', err);
+      }
       try {
         registerDexieSyncHooks(db);
         setupRealtimeSync();

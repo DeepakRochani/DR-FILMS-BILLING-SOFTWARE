@@ -30,6 +30,7 @@ export function QuotesPage({ onNewQuote, onEditQuote, onViewInvoice }) {
 
   const settings = useLiveQuery(() => db.settings.get('business_profile'));
   const rawQuotes = useLiveQuery(() => db.quotes ? db.quotes.toArray() : [], []) || [];
+  const customers = useLiveQuery(() => db.customers ? db.customers.toArray() : [], []) || [];
 
   const sym = settings?.currencySymbol || '₹';
 
@@ -81,17 +82,20 @@ export function QuotesPage({ onNewQuote, onEditQuote, onViewInvoice }) {
 
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
-        const clientName = (q.customerSnapshot?.name || '').toLowerCase();
+        const liveCust = q.customerId ? customers.find(c => Number(c.id) === Number(q.customerId)) : null;
+        const clientName = (liveCust?.name || q.customerSnapshot?.name || '').toLowerCase();
+        const clientCompany = (liveCust?.company || q.customerSnapshot?.company || '').toLowerCase();
+        const clientPhone = (liveCust?.phone || q.customerSnapshot?.phone || '').toLowerCase();
         const quoteNum = (q.quoteNumber || '').toLowerCase();
         const evType = (q.eventType || '').toLowerCase();
-        if (!clientName.includes(query) && !quoteNum.includes(query) && !evType.includes(query)) {
+        if (!clientName.includes(query) && !clientCompany.includes(query) && !clientPhone.includes(query) && !quoteNum.includes(query) && !evType.includes(query)) {
           return false;
         }
       }
 
       return true;
     });
-  }, [activeQuotes, statusFilter, searchQuery]);
+  }, [activeQuotes, statusFilter, searchQuery, customers]);
 
   // 1-Click Convert to Invoice
   const handleConvertToInvoice = async (quote) => {
@@ -113,11 +117,22 @@ export function QuotesPage({ onNewQuote, onEditQuote, onViewInvoice }) {
       const nextSeq = maxSeq + 1;
       const invoiceNumber = `${prefix}${String(nextSeq).padStart(4, '0')}`;
 
+      const liveCustomer = quote.customerId ? customers.find(c => Number(c.id) === Number(quote.customerId)) : null;
+      const effectiveSnapshot = liveCustomer ? {
+        name: liveCustomer.name || quote.customerSnapshot?.name || '',
+        phone: liveCustomer.phone || quote.customerSnapshot?.phone || '',
+        company: liveCustomer.company || quote.customerSnapshot?.company || '',
+        email: liveCustomer.email || quote.customerSnapshot?.email || '',
+        address: liveCustomer.address || quote.customerSnapshot?.address || '',
+        gstin: liveCustomer.gstin || quote.customerSnapshot?.gstin || '',
+        tag: liveCustomer.tag || quote.customerSnapshot?.tag || 'Regular'
+      } : (quote.customerSnapshot || {});
+
       const newInvoice = {
         invoiceNumber,
         customerId: quote.customerId || null,
         isDirectClient: Boolean(quote.isDirectClient),
-        customerSnapshot: quote.customerSnapshot || {},
+        customerSnapshot: effectiveSnapshot,
         invoiceDate: new Date().toISOString().split('T')[0],
         dueDate: quote.eventDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
         eventType: quote.eventType || 'Wedding',
@@ -344,6 +359,9 @@ Phone: ${settings?.phone || ''}`;
               <tbody className="divide-y divide-slate-800/60 text-slate-200">
                 {filteredQuotes.map(q => {
                   const isExpired = q.expiryDate && new Date(q.expiryDate) < new Date(new Date().setHours(0, 0, 0, 0));
+                  const liveCust = q.customerId ? customers.find(c => Number(c.id) === Number(q.customerId)) : null;
+                  const clientDisplayName = liveCust?.name || q.customerSnapshot?.name;
+                  const clientDisplayPhone = liveCust?.phone || q.customerSnapshot?.phone;
                   return (
                     <tr key={q.id} className="hover:bg-slate-800/40 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-bold text-amber-400">
@@ -351,16 +369,16 @@ Phone: ${settings?.phone || ''}`;
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-slate-100 flex items-center gap-1.5">
-                          <span>{q.customerSnapshot?.name}</span>
+                          <span>{clientDisplayName}</span>
                           {q.isDirectClient && (
                             <span className="text-[9px] bg-slate-800 text-slate-300 border border-slate-700 px-1 py-0.2 rounded">
                               Direct
                             </span>
                           )}
                         </div>
-                        {q.customerSnapshot?.phone && (
+                        {clientDisplayPhone && (
                           <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            {q.customerSnapshot.phone}
+                            {clientDisplayPhone}
                           </div>
                         )}
                       </td>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   TrendingUp, 
@@ -65,6 +65,31 @@ export function DashboardPage({
   const projects = useLiveQuery(() => db.projects?.toArray() || [], []) || [];
 
   const sym = settings?.currencySymbol || '₹';
+
+  // Customer ID / Phone lookup map for live client sync
+  const customerMap = useMemo(() => {
+    const map = new Map();
+    customers.forEach(c => {
+      if (c.id) map.set(Number(c.id), c);
+      if (c.phone) {
+        const clean = String(c.phone).replace(/\D/g, '');
+        if (clean) map.set(`phone:${clean}`, c);
+      }
+    });
+    return map;
+  }, [customers]);
+
+  const resolveCustomer = useCallback((inv) => {
+    if (!inv) return null;
+    if (inv.customerId && customerMap.has(Number(inv.customerId))) {
+      return customerMap.get(Number(inv.customerId));
+    }
+    const snapPhone = inv.customerSnapshot?.phone ? String(inv.customerSnapshot.phone).replace(/\D/g, '') : '';
+    if (snapPhone && customerMap.has(`phone:${snapPhone}`)) {
+      return customerMap.get(`phone:${snapPhone}`);
+    }
+    return inv.customerSnapshot || null;
+  }, [customerMap]);
 
   // 1. Month definitions
   const now = new Date();
@@ -333,15 +358,15 @@ export function DashboardPage({
 
   // Courtesy upcoming reminder handler
   const handleUpcomingReminder = (inv) => {
-    const custId = inv.customerId ? Number(inv.customerId) : null;
-    const clientRecord = custId ? customers.find(c => Number(c.id) === custId) : null;
+    const cust = resolveCustomer(inv);
+    const custId = inv.customerId ? Number(inv.customerId) : (cust?.id ? Number(cust.id) : null);
     setSelectedReminderGroup({
       groupKey: `upcoming_${inv.id}`,
       clientId: custId,
-      clientName: clientRecord?.name || inv.customerSnapshot?.name || 'Valued Client',
-      clientPhone: clientRecord?.phone || inv.customerSnapshot?.phone || '',
-      clientTag: clientRecord?.tag || inv.customerSnapshot?.tag || 'Regular',
-      isMuted: Boolean(clientRecord?.dontRemind || inv.customerSnapshot?.dontRemind),
+      clientName: cust?.name || inv.customerSnapshot?.name || 'Valued Client',
+      clientPhone: cust?.phone || inv.customerSnapshot?.phone || '',
+      clientTag: cust?.tag || inv.customerSnapshot?.tag || 'Regular',
+      isMuted: Boolean(cust?.dontRemind || inv.customerSnapshot?.dontRemind),
       invoices: [inv],
       totalPayable: Number(inv.balanceDue) || 0,
       maxDaysOverdue: 0,
@@ -984,6 +1009,7 @@ export function DashboardPage({
                 {upcomingDueInvoices.map((inv) => {
                   const daysUntil = calculateDaysUntilDue(inv.dueDate, inv.invoiceDate);
                   const dueLabel = daysUntil === 0 ? 'Due Today' : (daysUntil === 1 ? 'Due Tomorrow' : `Due in ${daysUntil} days`);
+                  const cust = resolveCustomer(inv);
 
                   return (
                     <div
@@ -992,7 +1018,7 @@ export function DashboardPage({
                     >
                       <div className="min-w-0">
                         <span className="font-semibold text-slate-200 block truncate">
-                          {inv.customerSnapshot?.name}
+                          {cust?.name || inv.customerSnapshot?.name}
                         </span>
                         <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5">
                           <span>{formatInvoiceNumber(inv.invoiceNumber)}</span>
@@ -1218,34 +1244,40 @@ export function DashboardPage({
           </p>
         ) : (
           <div className="divide-y divide-slate-800">
-            {recentInvoices.map((inv) => (
-              <div
-                key={inv.id}
-                onClick={() => onViewInvoice(inv.id)}
-                className="py-3 flex items-center justify-between gap-4 hover:bg-slate-800/40 px-2 rounded-xl cursor-pointer transition-colors"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-sm text-slate-200">
-                      {formatInvoiceNumber(inv.invoiceNumber)}
-                    </span>
-                    <StatusBadge status={inv.status} size="sm" />
-                  </div>
-                  <p className="text-xs text-slate-400 truncate mt-0.5">
-                    {inv.customerSnapshot?.name} {inv.customerSnapshot?.company ? `• ${inv.customerSnapshot.company}` : ''}
-                  </p>
-                </div>
+            {recentInvoices.map((inv) => {
+              const cust = resolveCustomer(inv);
+              const displayName = cust?.name || inv.customerSnapshot?.name;
+              const displayCompany = cust?.company || inv.customerSnapshot?.company;
 
-                <div className="text-right shrink-0">
-                  <span className="font-display font-bold text-sm text-slate-100 block">
-                    {formatCurrency(inv.totalAmount, sym)}
-                  </span>
-                  <span className="text-[11px] text-slate-500 font-mono">
-                    {formatDate(inv.invoiceDate)}
-                  </span>
+              return (
+                <div
+                  key={inv.id}
+                  onClick={() => onViewInvoice(inv.id)}
+                  className="py-3 flex items-center justify-between gap-4 hover:bg-slate-800/40 px-2 rounded-xl cursor-pointer transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-sm text-slate-200">
+                        {formatInvoiceNumber(inv.invoiceNumber)}
+                      </span>
+                      <StatusBadge status={inv.status} size="sm" />
+                    </div>
+                    <p className="text-xs text-slate-400 truncate mt-0.5">
+                      {displayName} {displayCompany ? `• ${displayCompany}` : ''}
+                    </p>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="font-display font-bold text-sm text-slate-100 block">
+                      {formatCurrency(inv.totalAmount, sym)}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {formatDate(inv.invoiceDate)}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

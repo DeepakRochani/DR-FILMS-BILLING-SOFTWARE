@@ -88,13 +88,15 @@ export function generateAccountantReport({ invoices = [], customers = [], expens
   });
 
   const getClientName = (customerId, snapshot) => {
+    if (customerId && clientMap.has(Number(customerId))) {
+      return clientMap.get(Number(customerId)).displayName;
+    }
     if (snapshot && (snapshot.name || snapshot.company)) {
       const sName = (snapshot.name || '').trim();
       const sComp = (snapshot.company || '').trim();
       return (sName && sComp && sComp !== sName) ? `${sName} (${sComp})` : (sName || sComp);
     }
-    const c = clientMap.get(Number(customerId));
-    return c ? c.displayName : 'Unknown Client';
+    return 'Unknown Client';
   };
 
   // Exclude deleted bills

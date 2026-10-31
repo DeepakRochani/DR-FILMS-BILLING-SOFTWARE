@@ -44,6 +44,7 @@ import { RecordRefundModal } from '../components/RecordRefundModal';
 import { ProjectFormModal } from '../components/ProjectFormModal';
 import { PaymentReceiptModal } from '../components/PaymentReceiptModal';
 import { setSharingActive } from '../utils/security';
+import { resolveEffectiveCustomer } from '../utils/customerSync';
 
 const ContractsModal = React.lazy(() => import('../components/ContractsModal').then(m => ({ default: m.ContractsModal })));
 
@@ -85,6 +86,47 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
   );
   const customers = useLiveQuery(() => db.customers?.toArray() || [], []) || [];
   const allInvoices = useLiveQuery(() => db.invoices?.toArray() || [], []) || [];
+
+  const activeCustomer = useMemo(() => {
+    return resolveEffectiveCustomer(invoice, customers);
+  }, [invoice, customers]);
+
+  const effectiveInvoice = useMemo(() => {
+    if (!invoice) return null;
+    return {
+      ...invoice,
+      customerSnapshot: activeCustomer || invoice.customerSnapshot
+    };
+  }, [invoice, activeCustomer]);
+
+  useEffect(() => {
+    if (invoice && activeCustomer && invoice.customerId) {
+      const snap = invoice.customerSnapshot || {};
+      const needsUpdate =
+        snap.name !== activeCustomer.name ||
+        (snap.company || '') !== (activeCustomer.company || '') ||
+        (snap.phone || '') !== (activeCustomer.phone || '') ||
+        (snap.email || '') !== (activeCustomer.email || '') ||
+        (snap.address || '') !== (activeCustomer.address || '') ||
+        (snap.gstin || '') !== (activeCustomer.gstin || '');
+
+      if (needsUpdate) {
+        db.invoices.update(invoice.id, {
+          customerSnapshot: {
+            ...snap,
+            name: activeCustomer.name,
+            company: activeCustomer.company || '',
+            phone: activeCustomer.phone || '',
+            email: activeCustomer.email || '',
+            address: activeCustomer.address || '',
+            gstin: activeCustomer.gstin || '',
+            tag: activeCustomer.tag || 'Regular'
+          },
+          updatedAt: new Date().toISOString()
+        }).catch(err => console.warn('Customer snapshot auto-sync notice:', err));
+      }
+    }
+  }, [invoice?.id, activeCustomer]);
 
   const sym = settings?.currencySymbol || '₹';
   const isWedding = Boolean(
@@ -239,7 +281,8 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
     if (isExporting || isSharing || !isQrReady) return;
     setIsExporting(true);
     setShareFeedback('Generating PDF...');
-    const filename = getInvoicePdfFilename(invoice);
+    const targetInvoice = effectiveInvoice || invoice;
+    const filename = getInvoicePdfFilename(targetInvoice);
 
     try {
       const activeQrDataUrl = await ensureQrDataUrl();
@@ -273,7 +316,7 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
       e.preventDefault();
       e.stopPropagation();
     }
-    openWhatsAppShare(invoice, settings);
+    openWhatsAppShare(effectiveInvoice || invoice, settings);
   };
 
   const handleSendOnWhatsApp = async (e) => {
@@ -302,8 +345,9 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
     setSharingActive(true);
     setShareFeedback('Preparing PDF...');
 
-    const filename = getInvoicePdfFilename(invoice);
-    const shortMessage = generateWhatsAppMessage(invoice, settings);
+    const targetInvoice = effectiveInvoice || invoice;
+    const filename = getInvoicePdfFilename(targetInvoice);
+    const shortMessage = generateWhatsAppMessage(targetInvoice, settings);
 
     try {
       const activeQrDataUrl = await ensureQrDataUrl();
@@ -348,7 +392,7 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
         setTimeout(() => setDownloadToast(''), 6000);
 
         // 3. Open in a new tab: https://web.whatsapp.com/send?phone=<91 + client number, digits only>&text=<encodeURIComponent(short message)>
-        const webUrl = getWhatsAppWebUrl(invoice, settings);
+        const webUrl = getWhatsAppWebUrl(targetInvoice || invoice, settings) || getWhatsAppWebUrl(invoice, settings);
         window.open(webUrl, '_blank', 'noopener,noreferrer');
 
         setTimeout(() => setShareFeedback(''), 3000);
@@ -402,7 +446,7 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
       setDownloadToast('PDF downloaded. In WhatsApp, click the + icon, choose Document, and attach the file.');
       setTimeout(() => setDownloadToast(''), 6000);
 
-      openWhatsAppShare(invoice, settings);
+      openWhatsAppShare(targetInvoice, settings);
       setTimeout(() => setShareFeedback(''), 3000);
     } catch (err) {
       console.error('[DR FILMS SHARE] Share handler error:', err);
@@ -685,7 +729,7 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
               )}
             </div>
             <p className="text-xs text-slate-400">
-              Client: {invoice.customerSnapshot?.name}
+              Client: {activeCustomer?.name || invoice.customerSnapshot?.name}
             </p>
           </div>
         </div>
@@ -1192,31 +1236,31 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
             </h4>
             <div className="space-y-1">
               <p className="font-black text-base text-slate-950">
-                {invoice.customerSnapshot?.name}
+                {activeCustomer?.name || invoice.customerSnapshot?.name}
               </p>
-              {invoice.customerSnapshot?.company && (
+              {(activeCustomer?.company || invoice.customerSnapshot?.company) && (
                 <p className="font-semibold text-slate-800">
-                  {invoice.customerSnapshot.company}
+                  {activeCustomer?.company || invoice.customerSnapshot.company}
                 </p>
               )}
-              {invoice.customerSnapshot?.phone && (
+              {(activeCustomer?.phone || invoice.customerSnapshot?.phone) && (
                 <p className="text-slate-800 font-medium tabular-nums">
-                  Phone: {formatPhoneNumber(invoice.customerSnapshot.phone)}
+                  Phone: {formatPhoneNumber(activeCustomer?.phone || invoice.customerSnapshot.phone)}
                 </p>
               )}
-              {invoice.customerSnapshot?.email && (
+              {(activeCustomer?.email || invoice.customerSnapshot?.email) && (
                 <p className="text-slate-700 font-medium">
-                  Email: {invoice.customerSnapshot.email}
+                  Email: {activeCustomer?.email || invoice.customerSnapshot.email}
                 </p>
               )}
-              {invoice.customerSnapshot?.address && (
+              {(activeCustomer?.address || invoice.customerSnapshot?.address) && (
                 <p className="text-slate-700 mt-1 max-w-sm leading-relaxed">
-                  {invoice.customerSnapshot.address}
+                  {activeCustomer?.address || invoice.customerSnapshot.address}
                 </p>
               )}
-              {invoice.customerSnapshot?.gstin && (
+              {(activeCustomer?.gstin || invoice.customerSnapshot?.gstin) && (
                 <p className="text-slate-950 font-bold tracking-wider mt-1">
-                  GSTIN / Tax ID: {invoice.customerSnapshot.gstin}
+                  GSTIN / Tax ID: {activeCustomer?.gstin || invoice.customerSnapshot.gstin}
                 </p>
               )}
             </div>
@@ -1853,7 +1897,7 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
             setReceiptPayment(null);
             setReceiptInitialAction(null);
           }}
-          invoice={invoice}
+          invoice={effectiveInvoice || invoice}
           payment={receiptPayment}
           settings={settings}
           initialAction={receiptInitialAction}
@@ -1866,7 +1910,7 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
           <ContractsModal
             isOpen={isContractModalOpen}
             onClose={() => setIsContractModalOpen(false)}
-            invoice={invoice}
+            invoice={effectiveInvoice || invoice}
             project={linkedProject}
             settings={settings}
           />

@@ -25,6 +25,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
 import { ClientStatementModal } from '../components/ClientStatementModal';
 import { scheduleAutoSync } from '../utils/googleSheetsSync';
+import { cascadeCustomerUpdate } from '../utils/customerSync';
 
 const CLIENT_TAG_STYLES = {
   'VIP': 'bg-amber-500/15 text-amber-300 border-amber-500/30 shadow-sm shadow-amber-500/10',
@@ -169,11 +170,15 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
         ...payload,
         updatedAt: new Date().toISOString()
       });
+      await cascadeCustomerUpdate(editingCustomer.id, payload, editingCustomer);
     } else {
-      await db.customers.add({
+      const addedId = await db.customers.add({
         ...payload,
         createdAt: new Date().toISOString()
       });
+      if (addedId) {
+        await cascadeCustomerUpdate(addedId, payload, { phone: payload.phone, name: payload.name });
+      }
     }
 
     scheduleAutoSync(500);

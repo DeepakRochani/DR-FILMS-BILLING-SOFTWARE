@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   Receipt, 
@@ -53,6 +53,31 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
 
   const invoices = useLiveQuery(() => db.invoices.toArray(), []) || [];
   const customers = useLiveQuery(() => db.customers.toArray(), []) || [];
+
+  // Client ID / Phone -> Customer record map for live name & profile sync
+  const customerMap = useMemo(() => {
+    const map = new Map();
+    customers.forEach(c => {
+      if (c.id) map.set(Number(c.id), c);
+      if (c.phone) {
+        const clean = String(c.phone).replace(/\D/g, '');
+        if (clean) map.set(`phone:${clean}`, c);
+      }
+    });
+    return map;
+  }, [customers]);
+
+  const getEffectiveCustomer = useCallback((inv) => {
+    if (!inv) return null;
+    if (inv.customerId && customerMap.has(Number(inv.customerId))) {
+      return customerMap.get(Number(inv.customerId));
+    }
+    const snapPhone = inv.customerSnapshot?.phone ? String(inv.customerSnapshot.phone).replace(/\D/g, '') : '';
+    if (snapPhone && customerMap.has(`phone:${snapPhone}`)) {
+      return customerMap.get(`phone:${snapPhone}`);
+    }
+    return inv.customerSnapshot || null;
+  }, [customerMap]);
 
   // Client ID -> Tag map
   const customerTagMap = useMemo(() => {
@@ -116,9 +141,10 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
     const q = search.toLowerCase();
     const invNum = (inv.invoiceNumber || '').toLowerCase();
     const formattedInvNum = formatInvoiceNumber(inv.invoiceNumber).toLowerCase();
-    const clientName = (inv.customerSnapshot?.name || '').toLowerCase();
-    const clientCompany = (inv.customerSnapshot?.company || '').toLowerCase();
-    const clientPhone = (inv.customerSnapshot?.phone || '').toLowerCase();
+    const effectiveCust = getEffectiveCustomer(inv);
+    const clientName = (effectiveCust?.name || inv.customerSnapshot?.name || '').toLowerCase();
+    const clientCompany = (effectiveCust?.company || inv.customerSnapshot?.company || '').toLowerCase();
+    const clientPhone = (effectiveCust?.phone || inv.customerSnapshot?.phone || '').toLowerCase();
 
     const matchesSearch = invNum.includes(q) || formattedInvNum.includes(q) || clientName.includes(q) || clientCompany.includes(q) || clientPhone.includes(q);
     if (!matchesSearch) return false;
@@ -135,7 +161,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
 
     // 5. Client Tag Filter
     if (clientTagFilter !== 'all') {
-      const tag = (inv.customerId && customerTagMap.get(Number(inv.customerId))) || inv.customerSnapshot?.tag || 'Regular';
+      const tag = effectiveCust?.tag || (inv.customerId && customerTagMap.get(Number(inv.customerId))) || inv.customerSnapshot?.tag || 'Regular';
       if (tag !== clientTagFilter) return false;
     }
 
@@ -718,7 +744,10 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
       ) : (
         <div className="space-y-3">
           {filteredInvoices.map((inv) => {
-            const clientTag = (inv.customerId && customerTagMap.get(Number(inv.customerId))) || inv.customerSnapshot?.tag || 'Regular';
+            const effectiveCust = getEffectiveCustomer(inv);
+            const clientTag = effectiveCust?.tag || (inv.customerId && customerTagMap.get(Number(inv.customerId))) || inv.customerSnapshot?.tag || 'Regular';
+            const clientDisplayName = effectiveCust?.name || inv.customerSnapshot?.name;
+            const clientDisplayCompany = effectiveCust?.company || inv.customerSnapshot?.company;
 
             return (
               <div
@@ -766,7 +795,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
 
                   <div className="flex items-center gap-2 truncate">
                     <h3 className="font-semibold text-slate-200 text-sm truncate">
-                      {inv.customerSnapshot?.name}
+                      {clientDisplayName}
                     </h3>
                     {clientTag && clientTag !== 'Regular' && (
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
@@ -777,9 +806,9 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
                         {clientTag}
                       </span>
                     )}
-                    {inv.customerSnapshot?.company && (
+                    {clientDisplayCompany && (
                       <span className="text-xs text-slate-400 font-normal truncate">
-                        ({inv.customerSnapshot.company})
+                        ({clientDisplayCompany})
                       </span>
                     )}
                   </div>
