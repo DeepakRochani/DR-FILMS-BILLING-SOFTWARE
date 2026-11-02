@@ -224,6 +224,7 @@ export function SettingsPage() {
   const securityProfile = useLiveQuery(() => db.settings.get('security_profile'));
   const [pinMode, setPinMode] = useState('view'); // 'view' | 'setup' | 'change' | 'remove'
   const [pinForm, setPinForm] = useState({
+    pinLength: '4', // '4' | '6'
     newPin: '',
     confirmPin: '',
     currentPin: '',
@@ -576,7 +577,7 @@ export function SettingsPage() {
     setIsManualSyncing(false);
     if (res.success) {
       const targetName = res.sheetName ? `to "${res.sheetName}"` : 'successfully';
-      alert(`🎉 Google Sheet synchronized ${targetName}!\nInvoices, Payments, Clients, and Services tabs have been updated.`);
+      alert(`Google Sheet synchronized ${targetName}!\nInvoices, Payments, Clients, and Services tabs have been updated.`);
     } else {
       alert(`Sync failed: ${res.error || res.reason || 'Check your internet connection and credentials.'}`);
     }
@@ -1197,6 +1198,7 @@ function doGet(e) {
     if (securityProfile) {
       setPinForm(prev => ({
         ...prev,
+        pinLength: String(securityProfile.pinLength || 4),
         timeoutMinutes: securityProfile.timeoutMinutes || '5',
         biometricsEnabled: Boolean(securityProfile.biometricsEnabled)
       }));
@@ -1208,11 +1210,16 @@ function doGet(e) {
     setPinError('');
     setPinSuccess('');
 
+    const targetLength = Number(pinForm.pinLength) || 4;
     const pin = pinForm.newPin.trim();
     const confirm = pinForm.confirmPin.trim();
 
-    if (!/^\d{4,6}$/.test(pin)) {
-      setPinError('PIN must be 4 to 6 numbers (digits 0-9 only).');
+    if (pin.length !== targetLength) {
+      setPinError(`PIN must be exactly ${targetLength} numbers (digits 0-9 only).`);
+      return;
+    }
+    if (!/^\d+$/.test(pin)) {
+      setPinError('PIN must contain numbers only (digits 0-9).');
       return;
     }
     if (pin !== confirm) {
@@ -1238,12 +1245,13 @@ function doGet(e) {
         isEnabled: true,
         pinHash,
         salt,
+        pinLength: targetLength,
         timeoutMinutes: pinForm.timeoutMinutes || '5',
         biometricsEnabled: Boolean(pinForm.biometricsEnabled && credentialId),
         credentialId
       });
 
-      setPinSuccess('PIN lock enabled successfully!');
+      setPinSuccess(`${targetLength}-digit PIN lock enabled successfully!`);
       setPinForm(prev => ({ ...prev, newPin: '', confirmPin: '', currentPin: '' }));
       setPinMode('view');
       setTimeout(() => setPinSuccess(''), 4000);
@@ -1264,6 +1272,7 @@ function doGet(e) {
     const curr = pinForm.currentPin.trim();
     const pin = pinForm.newPin.trim();
     const confirm = pinForm.confirmPin.trim();
+    const targetLength = Number(pinForm.pinLength) || 4;
 
     if (!curr) {
       setPinError('Please enter your current PIN.');
@@ -1279,8 +1288,13 @@ function doGet(e) {
         return;
       }
 
-      if (!/^\d{4,6}$/.test(pin)) {
-        setPinError('New PIN must be 4 to 6 numbers (digits 0-9 only).');
+      if (pin.length !== targetLength) {
+        setPinError(`New PIN must be exactly ${targetLength} numbers (digits 0-9 only).`);
+        setIsProcessingPin(false);
+        return;
+      }
+      if (!/^\d+$/.test(pin)) {
+        setPinError('New PIN must contain numbers only (digits 0-9).');
         setIsProcessingPin(false);
         return;
       }
@@ -1297,10 +1311,11 @@ function doGet(e) {
       await saveSecurityProfile({
         ...securityProfile,
         pinHash: newHash,
-        salt: newSalt
+        salt: newSalt,
+        pinLength: targetLength
       });
 
-      setPinSuccess('PIN changed successfully!');
+      setPinSuccess(`${targetLength}-digit PIN changed successfully!`);
       setPinForm(prev => ({ ...prev, newPin: '', confirmPin: '', currentPin: '' }));
       setPinMode('view');
       setTimeout(() => setPinSuccess(''), 4000);
@@ -3020,6 +3035,14 @@ function doGet(e) {
               </div>
             </div>
 
+            {/* Current PIN Format Display */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-950/60 rounded-xl border border-slate-800 text-xs">
+              <span className="text-slate-400">Current PIN Format:</span>
+              <span className="font-semibold text-amber-400 font-mono">
+                {Number(securityProfile.pinLength) === 6 ? '6 Digits (6 Dots)' : '4 Digits (4 Dots)'}
+              </span>
+            </div>
+
             {/* Actions: Change PIN or Remove */}
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <button
@@ -3028,7 +3051,13 @@ function doGet(e) {
                   setPinMode('change');
                   setPinError('');
                   setPinSuccess('');
-                  setPinForm(prev => ({ ...prev, currentPin: '', newPin: '', confirmPin: '' }));
+                  setPinForm(prev => ({
+                    ...prev,
+                    pinLength: String(securityProfile.pinLength || 4),
+                    currentPin: '',
+                    newPin: '',
+                    confirmPin: ''
+                  }));
                 }}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 transition-colors cursor-pointer"
               >
@@ -3058,6 +3087,39 @@ function doGet(e) {
               Change Security PIN
             </h4>
 
+            {/* PIN Format Toggle */}
+            <div>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1.5">
+                New PIN Format
+              </label>
+              <div className="grid grid-cols-2 gap-2 max-w-sm">
+                <button
+                  type="button"
+                  onClick={() => setPinForm(prev => ({ ...prev, pinLength: '4', newPin: '', confirmPin: '' }))}
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                    pinForm.pinLength === '4'
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  4 Digits (4 Dots)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPinForm(prev => ({ ...prev, pinLength: '6', newPin: '', confirmPin: '' }))}
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                    pinForm.pinLength === '6'
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  6 Digits (6 Dots)
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-300 block mb-1">
@@ -3078,14 +3140,14 @@ function doGet(e) {
 
               <div>
                 <label className="text-[11px] font-semibold text-slate-300 block mb-1">
-                  New PIN (4-6 digits)
+                  New PIN ({pinForm.pinLength || 4} digits)
                 </label>
                 <input
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="••••"
+                  maxLength={Number(pinForm.pinLength) || 4}
+                  placeholder={pinForm.pinLength === '6' ? '••••••' : '••••'}
                   value={pinForm.newPin}
                   onChange={(e) => setPinForm(prev => ({ ...prev, newPin: e.target.value.replace(/\D/g, '') }))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-400 text-center tracking-widest font-mono"
@@ -3101,8 +3163,8 @@ function doGet(e) {
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="••••"
+                  maxLength={Number(pinForm.pinLength) || 4}
+                  placeholder={pinForm.pinLength === '6' ? '••••••' : '••••'}
                   value={pinForm.confirmPin}
                   onChange={(e) => setPinForm(prev => ({ ...prev, confirmPin: e.target.value.replace(/\D/g, '') }))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-400 text-center tracking-widest font-mono"
@@ -3212,17 +3274,50 @@ function doGet(e) {
               Configure New App PIN
             </h4>
 
+            {/* PIN Format Toggle */}
+            <div>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1.5">
+                Select PIN Format
+              </label>
+              <div className="grid grid-cols-2 gap-2 max-w-sm">
+                <button
+                  type="button"
+                  onClick={() => setPinForm(prev => ({ ...prev, pinLength: '4', newPin: '', confirmPin: '' }))}
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                    pinForm.pinLength === '4'
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  4 Digits (4 Dots)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPinForm(prev => ({ ...prev, pinLength: '6', newPin: '', confirmPin: '' }))}
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                    pinForm.pinLength === '6'
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  6 Digits (6 Dots)
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-[11px] font-semibold text-slate-300 block mb-1">
-                  Choose PIN (4 to 6 digits)
+                  Choose PIN ({pinForm.pinLength || 4} digits)
                 </label>
                 <input
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="••••"
+                  maxLength={Number(pinForm.pinLength) || 4}
+                  placeholder={pinForm.pinLength === '6' ? '••••••' : '••••'}
                   value={pinForm.newPin}
                   onChange={(e) => setPinForm(prev => ({ ...prev, newPin: e.target.value.replace(/\D/g, '') }))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-400 text-center tracking-widest font-mono"
@@ -3238,8 +3333,8 @@ function doGet(e) {
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="••••"
+                  maxLength={Number(pinForm.pinLength) || 4}
+                  placeholder={pinForm.pinLength === '6' ? '••••••' : '••••'}
                   value={pinForm.confirmPin}
                   onChange={(e) => setPinForm(prev => ({ ...prev, confirmPin: e.target.value.replace(/\D/g, '') }))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-400 text-center tracking-widest font-mono"

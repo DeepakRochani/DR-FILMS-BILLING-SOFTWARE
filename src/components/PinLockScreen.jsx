@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { db } from '../db/db';
 import { 
   Lock, 
   Unlock, 
@@ -30,6 +31,16 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
   const [isVerifying, setIsVerifying] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
 
+  // Dynamic PIN length: 4 or 6 digits based on security profile (defaults to 4)
+  const configuredLength = securityProfile?.pinLength ? Number(securityProfile.pinLength) : 4;
+  const [activePinLength, setActivePinLength] = useState(configuredLength);
+
+  useEffect(() => {
+    if (securityProfile?.pinLength) {
+      setActivePinLength(Number(securityProfile.pinLength));
+    }
+  }, [securityProfile?.pinLength]);
+
   // Countdown timer for lockout
   useEffect(() => {
     if (lockoutSeconds <= 0) return;
@@ -43,11 +54,11 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
     return () => clearInterval(interval);
   }, [lockoutSeconds]);
 
-  // Attempt verification when PIN length is reached (4 to 6 digits)
+  // Attempt verification when PIN length is reached
   const handleSubmitPin = useCallback(async (pinToTest) => {
     if (isVerifying || lockoutSeconds > 0) return;
     if (!pinToTest || pinToTest.length < 4) {
-      setErrorMessage('Enter your 4 to 6 digit PIN');
+      setErrorMessage(`Enter your ${activePinLength}-digit PIN`);
       return;
     }
 
@@ -58,6 +69,18 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
       const isValid = await verifyPin(pinToTest, securityProfile.salt, securityProfile.pinHash);
 
       if (isValid) {
+        // Automatically persist verified PIN length so future lock screens know it immediately
+        if (securityProfile && securityProfile.pinLength !== pinToTest.length) {
+          try {
+            await db.settings.put({
+              ...securityProfile,
+              pinLength: pinToTest.length,
+              updatedAt: new Date().toISOString()
+            }, 'security_profile');
+          } catch (e) {
+            console.warn('Could not persist pinLength in security profile:', e);
+          }
+        }
         resetLockoutState();
         recordUserActivity();
         onUnlock();
@@ -79,17 +102,17 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
     } finally {
       setIsVerifying(false);
     }
-  }, [isVerifying, lockoutSeconds, securityProfile, onUnlock]);
+  }, [isVerifying, lockoutSeconds, securityProfile, onUnlock, activePinLength]);
 
   const handleDigitPress = (digit) => {
     if (lockoutSeconds > 0 || isVerifying) return;
-    if (enteredPin.length >= 6) return;
+    if (enteredPin.length >= activePinLength) return;
     const newPin = enteredPin + digit;
     setEnteredPin(newPin);
     setErrorMessage(null);
 
-    // Auto-submit if 6 digits entered
-    if (newPin.length === 6) {
+    // Auto-submit immediately once the user enters the full PIN
+    if (newPin.length === activePinLength) {
       handleSubmitPin(newPin);
     }
   };
@@ -117,7 +140,7 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
       } else if (e.key === 'Escape') {
         handleClear();
       } else if (e.key === 'Enter') {
-        if (enteredPin.length >= 4) {
+        if (enteredPin.length === activePinLength) {
           handleSubmitPin(enteredPin);
         }
       }
@@ -125,7 +148,7 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [enteredPin, lockoutSeconds, handleSubmitPin]);
+  }, [enteredPin, lockoutSeconds, handleSubmitPin, activePinLength]);
 
   // Biometric Unlock Trigger
   const handleBiometricUnlock = async () => {
@@ -176,7 +199,7 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
           <p className="text-xs text-slate-400 mt-1">
             {lockoutSeconds > 0 
               ? 'Keypad temporarily disabled due to wrong attempts.' 
-              : 'Enter your 4 to 6 digit security PIN to continue'}
+              : `Enter your ${activePinLength}-digit security PIN to continue`}
           </p>
         </div>
       </div>
@@ -196,9 +219,9 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
           </div>
         ) : (
           <>
-            {/* PIN Dots Display */}
+            {/* PIN Dots Display: exactly 4 or 6 dots based on configured PIN length */}
             <div className="flex items-center justify-center gap-3 py-2">
-              {[0, 1, 2, 3, 4, 5].map((idx) => {
+              {Array.from({ length: activePinLength }).map((_, idx) => {
                 const isFilled = idx < enteredPin.length;
                 return (
                   <div
@@ -213,6 +236,21 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
               })}
             </div>
 
+            {/* Toggle helper if pinLength not explicitly set in profile */}
+            {!securityProfile?.pinLength && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEnteredPin('');
+                  setErrorMessage(null);
+                  setActivePinLength(prev => (prev === 4 ? 6 : 4));
+                }}
+                className="text-[11px] text-slate-400 hover:text-amber-400 transition-colors font-medium -mt-2 cursor-pointer"
+              >
+                {activePinLength === 4 ? 'Using a 6-digit PIN? Switch to 6 digits' : 'Using a 4-digit PIN? Switch to 4 digits'}
+              </button>
+            )}
+
             {/* Error or Hint Message */}
             {errorMessage && (
               <p className="text-xs text-rose-400 font-semibold text-center animate-shake px-2">
@@ -220,13 +258,13 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
               </p>
             )}
 
-            {/* Unlock Button for 4-5 digit PINs */}
-            {enteredPin.length >= 4 && enteredPin.length < 6 && (
+            {/* Unlock Button fallback if manual submit needed */}
+            {enteredPin.length === activePinLength && (
               <button
                 type="button"
                 onClick={() => handleSubmitPin(enteredPin)}
                 disabled={isVerifying}
-                className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-md shadow-amber-500/20"
+                className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-md shadow-amber-500/20 cursor-pointer"
               >
                 <Unlock className="w-3.5 h-3.5" />
                 <span>{isVerifying ? 'Verifying...' : 'Unlock Suite'}</span>
@@ -335,7 +373,7 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
                 The only way to regain access if you have forgotten your PIN is to <strong>clear this browser's site data</strong> and restore your studio bills, clients, and expenses from your Google Sheet cloud backup or a downloaded JSON backup.
               </p>
               <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px]">
-                💡 <strong>Good news:</strong> If Google Sheets Auto-Backup was enabled, none of your billing history will be lost.
+                <strong>Good news:</strong> If Google Sheets Auto-Backup was enabled, none of your billing history will be lost.
               </div>
             </div>
 

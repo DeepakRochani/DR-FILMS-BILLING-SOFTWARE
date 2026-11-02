@@ -283,6 +283,7 @@ export async function saveSecurityProfile({
   isEnabled = true,
   pinHash,
   salt,
+  pinLength = 4,
   timeoutMinutes = '5',
   biometricsEnabled = false,
   credentialId = null
@@ -292,6 +293,7 @@ export async function saveSecurityProfile({
     isEnabled: Boolean(isEnabled),
     pinHash,
     salt,
+    pinLength: Number(pinLength) === 6 ? 6 : 4,
     timeoutMinutes: String(timeoutMinutes),
     biometricsEnabled: Boolean(biometricsEnabled),
     credentialId: credentialId || null,
