@@ -569,11 +569,11 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
         {/* Line 1: Compact Search, Event Type, Client Tag, and Date Range */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Compact Search Bar */}
-          <div className="relative w-full sm:w-72 md:w-80 shrink-0">
+          <div className="relative w-full sm:w-64 md:w-72 shrink-0">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search by Invoice #, Client Name, Company, or Phone..."
+              placeholder="Search by Invoice #, Client, Phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full glass-input pl-10 pr-4 py-2 rounded-xl text-xs placeholder:text-slate-500"
