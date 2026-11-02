@@ -565,28 +565,172 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
       )}
 
       {/* Filter and Search Bar */}
-      <div className="glass-card rounded-2xl p-4 border border-slate-800 space-y-3.5">
-        {/* Line 1: Compact Search, Event Type, Client Tag, and Date Range */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Compact Search Bar */}
-          <div className="relative w-full sm:w-64 md:w-72 shrink-0">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="glass-card rounded-2xl p-3 sm:p-4 border border-slate-800 space-y-2.5 sm:space-y-3">
+        {/* Mobile View Layout (sm:hidden) */}
+        <div className="flex flex-col gap-2 sm:hidden">
+          {/* Mobile Row 1: Compact Search + Sort */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search bills, clients, phone..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full glass-input pl-8 pr-2.5 py-1.5 rounded-xl text-xs placeholder:text-slate-500"
+              />
+            </div>
+            <select
+              value={sortField}
+              onChange={(e) => setSortField(e.target.value)}
+              className="glass-input px-2.5 py-1.5 rounded-xl text-xs shrink-0"
+            >
+              <option value="date_desc">Newest First</option>
+              <option value="date_asc">Oldest First</option>
+              <option value="amount_desc">Highest Amount</option>
+              <option value="amount_asc">Lowest Amount</option>
+            </select>
+          </div>
+
+          {/* Mobile Row 2: Status Pills (Horizontal Swipeable Scroll) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            {statusTabs.map((tab) => {
+              const isTrash = tab.id === 'trash';
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id)}
+                  className={`text-xs px-2.5 py-1 rounded-xl font-medium whitespace-nowrap transition-colors border flex items-center gap-1 cursor-pointer ${
+                    statusFilter === tab.id
+                      ? isTrash
+                        ? 'bg-rose-600 text-white border-rose-500 font-semibold shadow-md shadow-rose-900/30'
+                        : 'bg-amber-500 text-slate-950 border-amber-400 font-semibold'
+                      : isTrash
+                      ? 'bg-rose-950/30 text-rose-300 border-rose-900/50 hover:bg-rose-900/40 hover:text-white'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  {isTrash && <Trash2 className="w-3 h-3" />}
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Mobile Row 3: Event Type & Client Tag */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <select
+              value={eventTypeFilter}
+              onChange={(e) => setEventTypeFilter(e.target.value)}
+              className="glass-input px-2 py-1.5 rounded-xl text-xs w-full truncate"
+            >
+              <option value="all">All Event Types</option>
+              {availableEventTypes.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+
+            <select
+              value={clientTagFilter}
+              onChange={(e) => setClientTagFilter(e.target.value)}
+              className="glass-input px-2 py-1.5 rounded-xl text-xs w-full truncate"
+            >
+              <option value="all">All Client Tags</option>
+              <option value="Regular">Regular</option>
+              <option value="VIP">VIP</option>
+              <option value="Corporate">Corporate</option>
+              <option value="Studio/Partner">Studio / Partner</option>
+            </select>
+          </div>
+
+          {/* Mobile Row 4: Date Range Pickers */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <div className="relative flex-1 flex items-center">
+              <Calendar className="w-3 h-3 text-slate-500 absolute left-2 pointer-events-none" />
+              <input
+                type="date"
+                title="Start Date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full glass-input pl-6 pr-1.5 py-1 rounded-xl text-xs font-mono"
+              />
+            </div>
+            <span className="text-slate-500 text-xs shrink-0">to</span>
+            <div className="relative flex-1 flex items-center">
+              <Calendar className="w-3 h-3 text-slate-500 absolute left-2 pointer-events-none" />
+              <input
+                type="date"
+                title="End Date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full glass-input pl-6 pr-1.5 py-1 rounded-xl text-xs font-mono"
+              />
+            </div>
+            {(startDate || endDate || eventTypeFilter !== 'all' || clientTagFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                  setEventTypeFilter('all');
+                  setClientTagFilter('all');
+                }}
+                className="text-amber-400 hover:text-amber-300 text-xs px-1.5 py-1 shrink-0"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tablet & Desktop Unified Responsive Toolbar (hidden sm:flex) */}
+        <div className="hidden sm:flex flex-wrap items-center gap-2 lg:gap-2.5">
+          {/* Search Bar */}
+          <div className="relative w-44 md:w-52 lg:w-60 shrink-0">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search by Invoice #, Client, Phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full glass-input pl-10 pr-4 py-2 rounded-xl text-xs placeholder:text-slate-500"
+              className="w-full glass-input pl-8 pr-2.5 py-1.5 rounded-xl text-xs placeholder:text-slate-500"
             />
           </div>
 
+          {/* Status Pills: Flowing directly with/after Search Bar on Desktop & Tablet */}
+          <div className="flex items-center gap-1 shrink-0">
+            {statusTabs.map((tab) => {
+              const isTrash = tab.id === 'trash';
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id)}
+                  className={`text-xs px-2.5 py-1.5 rounded-xl font-medium whitespace-nowrap transition-colors border flex items-center gap-1 cursor-pointer ${
+                    statusFilter === tab.id
+                      ? isTrash
+                        ? 'bg-rose-600 text-white border-rose-500 font-semibold shadow-md shadow-rose-900/30'
+                        : 'bg-amber-500 text-slate-950 border-amber-400 font-semibold'
+                      : isTrash
+                      ? 'bg-rose-950/30 text-rose-300 border-rose-900/50 hover:bg-rose-900/40 hover:text-white'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  {isTrash && <Trash2 className="w-3 h-3" />}
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Event Type Filter */}
-          <div className="flex items-center gap-1.5 text-xs shrink-0">
-            <span className="text-slate-400 font-medium hidden sm:inline">Event:</span>
+          <div className="flex items-center gap-1 text-xs shrink-0">
+            <span className="text-slate-400 font-medium text-xs hidden lg:inline">Event:</span>
             <select
               value={eventTypeFilter}
               onChange={(e) => setEventTypeFilter(e.target.value)}
-              className="glass-input px-2.5 py-2 rounded-xl text-xs"
+              className="glass-input px-2 py-1.5 rounded-xl text-xs"
             >
               <option value="all">All Event Types</option>
               {availableEventTypes.map(t => (
@@ -596,12 +740,12 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
           </div>
 
           {/* Client Tag Filter */}
-          <div className="flex items-center gap-1.5 text-xs shrink-0">
-            <span className="text-slate-400 font-medium hidden sm:inline">Tag:</span>
+          <div className="flex items-center gap-1 text-xs shrink-0">
+            <span className="text-slate-400 font-medium text-xs hidden lg:inline">Tag:</span>
             <select
               value={clientTagFilter}
               onChange={(e) => setClientTagFilter(e.target.value)}
-              className="glass-input px-2.5 py-2 rounded-xl text-xs"
+              className="glass-input px-2 py-1.5 rounded-xl text-xs"
             >
               <option value="all">All Client Tags</option>
               <option value="Regular">Regular</option>
@@ -625,26 +769,26 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
           )}
 
           {/* Date range filters */}
-          <div className="flex items-center gap-1.5 text-xs sm:ml-auto shrink-0 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-1 text-xs shrink-0">
             <div className="relative flex items-center">
-              <Calendar className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+              <Calendar className="w-3 h-3 text-slate-500 absolute left-2 pointer-events-none" />
               <input
                 type="date"
                 title="Start Date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="glass-input pl-8 pr-2 py-1.5 rounded-xl text-xs font-mono"
+                className="glass-input pl-6 pr-1 py-1.5 rounded-xl text-xs font-mono w-28 sm:w-32"
               />
             </div>
             <span className="text-slate-500 text-xs">to</span>
             <div className="relative flex items-center">
-              <Calendar className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
+              <Calendar className="w-3 h-3 text-slate-500 absolute left-2 pointer-events-none" />
               <input
                 type="date"
                 title="End Date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="glass-input pl-8 pr-2 py-1.5 rounded-xl text-xs font-mono"
+                className="glass-input pl-6 pr-1 py-1.5 rounded-xl text-xs font-mono w-28 sm:w-32"
               />
             </div>
 
@@ -655,50 +799,23 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
                   setStartDate('');
                   setEndDate('');
                 }}
-                className="text-slate-400 hover:text-amber-400 text-xs px-1.5 py-1"
+                className="text-slate-400 hover:text-amber-400 text-xs px-1 py-1"
               >
                 Clear
               </button>
             )}
           </div>
-        </div>
 
-        {/* Line 2: Status Filter Tabs & Sorting */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar flex-wrap sm:flex-nowrap">
-            {statusTabs.map((tab) => {
-              const isTrash = tab.id === 'trash';
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.id)}
-                  className={`text-xs px-3 py-1.5 rounded-xl font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 cursor-pointer ${
-                    statusFilter === tab.id
-                      ? isTrash
-                        ? 'bg-rose-600 text-white border-rose-500 font-semibold shadow-md shadow-rose-900/30'
-                        : 'bg-amber-500 text-slate-950 border-amber-400 font-semibold'
-                      : isTrash
-                      ? 'bg-rose-950/30 text-rose-300 border-rose-900/50 hover:bg-rose-900/40 hover:text-white'
-                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  {isTrash && <Trash2 className="w-3.5 h-3.5" />}
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center gap-2 self-end sm:self-auto text-xs shrink-0 sm:ml-auto">
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-1 text-xs shrink-0">
             <span className="text-slate-500 flex items-center gap-1">
               <ArrowUpDown className="w-3 h-3" />
-              <span>Sort:</span>
+              <span className="hidden xl:inline">Sort:</span>
             </span>
             <select
               value={sortField}
               onChange={(e) => setSortField(e.target.value)}
-              className="glass-input px-2.5 py-1.5 rounded-xl text-xs"
+              className="glass-input px-2 py-1.5 rounded-xl text-xs"
             >
               <option value="date_desc">Newest First</option>
               <option value="date_asc">Oldest First</option>
