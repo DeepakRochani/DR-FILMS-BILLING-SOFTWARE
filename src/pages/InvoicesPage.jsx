@@ -685,13 +685,13 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
         </div>
 
         {/* Tablet & Desktop Unified Responsive Toolbar (hidden sm:flex) */}
-        <div className="hidden sm:flex flex-wrap items-center gap-2 lg:gap-2.5">
+        <div className="hidden sm:flex flex-wrap items-center gap-1.5 lg:gap-2">
           {/* Search Bar */}
-          <div className="relative w-44 md:w-52 lg:w-60 shrink-0">
+          <div className="relative w-36 md:w-44 lg:w-48 shrink-0">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search by Invoice #, Client, Phone..."
+              placeholder="Search bills, clients..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full glass-input pl-8 pr-2.5 py-1.5 rounded-xl text-xs placeholder:text-slate-500"
@@ -707,7 +707,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
                   key={tab.id}
                   type="button"
                   onClick={() => setStatusFilter(tab.id)}
-                  className={`text-xs px-2.5 py-1.5 rounded-xl font-medium whitespace-nowrap transition-colors border flex items-center gap-1 cursor-pointer ${
+                  className={`text-xs px-2 py-1 rounded-xl font-medium whitespace-nowrap transition-colors border flex items-center gap-1 cursor-pointer ${
                     statusFilter === tab.id
                       ? isTrash
                         ? 'bg-rose-600 text-white border-rose-500 font-semibold shadow-md shadow-rose-900/30'
@@ -730,9 +730,9 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
             <select
               value={eventTypeFilter}
               onChange={(e) => setEventTypeFilter(e.target.value)}
-              className="glass-input px-2 py-1.5 rounded-xl text-xs"
+              className="glass-input px-2 py-1 rounded-xl text-xs"
             >
-              <option value="all">All Event Types</option>
+              <option value="all">All Events</option>
               {availableEventTypes.map(t => (
                 <option key={t} value={t}>{t}</option>
               ))}
@@ -745,9 +745,9 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
             <select
               value={clientTagFilter}
               onChange={(e) => setClientTagFilter(e.target.value)}
-              className="glass-input px-2 py-1.5 rounded-xl text-xs"
+              className="glass-input px-2 py-1 rounded-xl text-xs"
             >
-              <option value="all">All Client Tags</option>
+              <option value="all">All Tags</option>
               <option value="Regular">Regular</option>
               <option value="VIP">VIP</option>
               <option value="Corporate">Corporate</option>
@@ -777,7 +777,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
                 title="Start Date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="glass-input pl-6 pr-1 py-1.5 rounded-xl text-xs font-mono w-28 sm:w-32"
+                className="glass-input pl-6 pr-1 py-1 rounded-xl text-xs font-mono w-28"
               />
             </div>
             <span className="text-slate-500 text-xs">to</span>
@@ -788,7 +788,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
                 title="End Date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="glass-input pl-6 pr-1 py-1.5 rounded-xl text-xs font-mono w-28 sm:w-32"
+                className="glass-input pl-6 pr-1 py-1 rounded-xl text-xs font-mono w-28"
               />
             </div>
 
@@ -815,7 +815,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
             <select
               value={sortField}
               onChange={(e) => setSortField(e.target.value)}
-              className="glass-input px-2 py-1.5 rounded-xl text-xs"
+              className="glass-input px-2 py-1 rounded-xl text-xs"
             >
               <option value="date_desc">Newest First</option>
               <option value="date_asc">Oldest First</option>
