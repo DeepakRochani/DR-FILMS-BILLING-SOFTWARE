@@ -18,7 +18,15 @@ import {
   CreditCard,
   Ban,
   Tag,
-  MessageSquare
+  MessageSquare,
+  Columns,
+  ExternalLink,
+  X,
+  Phone,
+  Building2,
+  User,
+  Clock,
+  FileText
 } from 'lucide-react';
 import { db } from '../db/db';
 import { formatCurrency, formatDate, formatInvoiceNumber } from '../utils/formatters';
@@ -47,6 +55,8 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
   const [cancellingInvoice, setCancellingInvoice] = useState(null);
   const [isBatchRemindersOpen, setIsBatchRemindersOpen] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState('');
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
+  const [isSplitPreviewOpen, setIsSplitPreviewOpen] = useState(true);
 
   const settings = useLiveQuery(() => db.settings.get('business_profile'));
   const sym = settings?.currencySymbol || '₹';
@@ -191,6 +201,19 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
   const activeFiltered = filteredInvoices.filter(inv => !inv.isDeleted && inv.status !== 'cancelled');
   const totalBilled = activeFiltered.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
   const totalPending = activeFiltered.reduce((sum, inv) => sum + (inv.balanceDue || 0), 0);
+
+  // Selected bill for live two-column desktop preview
+  const selectedInvoice = useMemo(() => {
+    if (selectedInvoiceId) {
+      const match = filteredInvoices.find(inv => inv.id === selectedInvoiceId);
+      if (match) return match;
+    }
+    return filteredInvoices[0] || null;
+  }, [selectedInvoiceId, filteredInvoices]);
+
+  const selectedEffectiveCust = useMemo(() => {
+    return selectedInvoice ? getEffectiveCustomer(selectedInvoice) : null;
+  }, [selectedInvoice, getEffectiveCustomer]);
 
   const handleMarkAsPaid = (e, inv) => {
     if (e?.stopPropagation) e.stopPropagation();
@@ -433,7 +456,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
   ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 w-full max-w-[1720px] mx-auto space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -510,6 +533,17 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-400" />
             <span>Trash ({trashCount})</span>
+          </button>
+
+          {/* Desktop Split View Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsSplitPreviewOpen(!isSplitPreviewOpen)}
+            className="hidden xl:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 font-medium text-xs py-2.5 px-3.5 rounded-xl border border-slate-700 transition-colors cursor-pointer"
+            title={isSplitPreviewOpen ? 'Switch to Full Width List' : 'Switch to Split Screen Preview'}
+          >
+            <Columns className="w-3.5 h-3.5 text-amber-400" />
+            <span>{isSplitPreviewOpen ? 'Full Width' : 'Split View'}</span>
           </button>
 
           <button
@@ -718,47 +752,63 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
         </div>
       </div>
 
-      {/* Invoices List */}
-      {filteredInvoices.length === 0 ? (
-        <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80 p-6">
-          <Receipt className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-          <h4 className="text-base font-semibold text-slate-300">
-            {statusFilter === 'trash' ? 'Trash is empty' : 'No invoices match your filter'}
-          </h4>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            {statusFilter === 'trash'
-              ? 'Deleted invoices will appear here. They are preserved forever in your Google Sheet backup.'
-              : 'Try adjusting your search terms, date ranges, or status tabs.'}
-          </p>
-          {statusFilter !== 'trash' && (
-            <button
-              type="button"
-              onClick={onNewInvoice}
-              className="mt-4 inline-flex items-center gap-2 bg-amber-500 text-slate-950 text-xs font-semibold px-4 py-2 rounded-xl"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Create New Bill</span>
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredInvoices.map((inv) => {
-            const effectiveCust = getEffectiveCustomer(inv);
-            const clientTag = effectiveCust?.tag || (inv.customerId && customerTagMap.get(Number(inv.customerId))) || inv.customerSnapshot?.tag || 'Regular';
-            const clientDisplayName = effectiveCust?.name || inv.customerSnapshot?.name;
-            const clientDisplayCompany = effectiveCust?.company || inv.customerSnapshot?.company;
+      {/* Main Content Area: Split View on Desktop */}
+      <div className="flex flex-col xl:flex-row gap-6 items-start">
+        {/* Left Column: Invoices List */}
+        <div className={`w-full transition-all duration-300 ${isSplitPreviewOpen && selectedInvoice && filteredInvoices.length > 0 ? 'xl:w-7/12 2xl:w-3/5' : 'w-full'} space-y-4`}>
+          {filteredInvoices.length === 0 ? (
+            <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80 p-6">
+              <Receipt className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <h4 className="text-base font-semibold text-slate-300">
+                {statusFilter === 'trash' ? 'Trash is empty' : 'No invoices match your filter'}
+              </h4>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                {statusFilter === 'trash'
+                  ? 'Deleted invoices will appear here. They are preserved forever in your Google Sheet backup.'
+                  : 'Try adjusting your search terms, date ranges, or status tabs.'}
+              </p>
+              {statusFilter !== 'trash' && (
+                <button
+                  type="button"
+                  onClick={onNewInvoice}
+                  className="mt-4 inline-flex items-center gap-2 bg-amber-500 text-slate-950 text-xs font-semibold px-4 py-2 rounded-xl"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create New Bill</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredInvoices.map((inv) => {
+                const effectiveCust = getEffectiveCustomer(inv);
+                const clientTag = effectiveCust?.tag || (inv.customerId && customerTagMap.get(Number(inv.customerId))) || inv.customerSnapshot?.tag || 'Regular';
+                const clientDisplayName = effectiveCust?.name || inv.customerSnapshot?.name;
+                const clientDisplayCompany = effectiveCust?.company || inv.customerSnapshot?.company;
+                const isSelected = selectedInvoice?.id === inv.id;
 
-            return (
-              <div
-                key={inv.id}
-                onClick={() => onViewInvoice(inv.id)}
-                className={`glass-card rounded-2xl p-4 sm:p-5 border transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                  inv.isDeleted
-                    ? 'border-rose-900/40 bg-rose-950/10 hover:border-rose-500/40'
-                    : 'border-slate-800/90 hover:border-amber-500/40'
-                }`}
-              >
+                return (
+                  <div
+                    key={inv.id}
+                    onClick={() => {
+                      setSelectedInvoiceId(inv.id);
+                      if (typeof window !== 'undefined' && (window.innerWidth < 1280 || !isSplitPreviewOpen)) {
+                        onViewInvoice(inv.id);
+                      }
+                    }}
+                    onDoubleClick={() => onViewInvoice(inv.id)}
+                    className={`glass-card rounded-2xl p-4 sm:p-5 border transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative ${
+                      inv.isDeleted
+                        ? 'border-rose-900/40 bg-rose-950/10 hover:border-rose-500/40'
+                        : isSelected && isSplitPreviewOpen
+                        ? 'border-amber-500/60 bg-amber-500/5 ring-1 ring-amber-500/40 shadow-lg shadow-amber-500/5'
+                        : 'border-slate-800/90 hover:border-amber-500/40'
+                    }`}
+                  >
+                    {/* Active Selected Highlight Bar on Left */}
+                    {isSelected && isSplitPreviewOpen && (
+                      <div className="hidden xl:block absolute left-0 top-3 bottom-3 w-1 bg-amber-400 rounded-r-full" />
+                    )}
                 {/* Left Details */}
                 <div className="space-y-1.5 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -998,6 +1048,18 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          onViewInvoice(inv.id);
+                        }}
+                        className="hidden xl:inline-flex p-2 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                        title="Open Full Screen View & Print"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           onEditInvoice(inv.id);
                         }}
                         className="p-2 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
@@ -1023,6 +1085,208 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
         })}
         </div>
       )}
+      </div>
+
+      {/* Right Column: Live Bill Details & Quick Action Panel */}
+      {isSplitPreviewOpen && selectedInvoice && filteredInvoices.length > 0 && (
+        <aside className="hidden xl:block xl:w-5/12 2xl:w-2/5 sticky top-6 self-start max-h-[calc(100vh-3rem)] overflow-y-auto no-scrollbar space-y-4 animate-fadeIn">
+          <div className="glass-card rounded-2xl p-5 border border-slate-800 bg-slate-900/90 shadow-2xl space-y-5">
+            {/* Preview Header */}
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-800/80">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
+                    Live Bill Details
+                  </span>
+                  <span className="text-slate-600">•</span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {formatDate(selectedInvoice.invoiceDate)}
+                  </span>
+                </div>
+                <h3 className="text-xl font-display font-extrabold text-slate-100 mt-1 flex items-center gap-2.5">
+                  <span>{formatInvoiceNumber(selectedInvoice.invoiceNumber)}</span>
+                  <StatusBadge status={selectedInvoice.status} size="sm" />
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onViewInvoice(selectedInvoice.id)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 border border-slate-700 transition-colors cursor-pointer"
+                  title="Open Full Screen View & Print"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSplitPreviewOpen(false)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+                  title="Close Preview Panel"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Client Info Card */}
+            <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                    Client & Contact
+                  </span>
+                  <h4 className="font-bold text-slate-100 text-sm truncate">
+                    {selectedEffectiveCust?.name || selectedInvoice.customerSnapshot?.name || 'Walk-in Client'}
+                  </h4>
+                  {(selectedEffectiveCust?.company || selectedInvoice.customerSnapshot?.company) && (
+                    <p className="text-xs text-slate-400 truncate">
+                      {selectedEffectiveCust?.company || selectedInvoice.customerSnapshot?.company}
+                    </p>
+                  )}
+                </div>
+
+                {(selectedEffectiveCust?.tag || selectedInvoice.customerSnapshot?.tag) && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 border border-slate-700 shrink-0">
+                    {selectedEffectiveCust?.tag || selectedInvoice.customerSnapshot?.tag}
+                  </span>
+                )}
+              </div>
+
+              {/* Phone & Direct WhatsApp Actions */}
+              {(selectedEffectiveCust?.phone || selectedInvoice.customerSnapshot?.phone) && (
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60 text-xs">
+                  <span className="text-slate-300 font-mono">
+                    {selectedEffectiveCust?.phone || selectedInvoice.customerSnapshot?.phone}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleWhatsApp(e, selectedInvoice)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-xs font-semibold rounded-lg border border-emerald-500/30 transition-colors cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Event Type & Date if any */}
+              {(selectedInvoice.eventType || selectedInvoice.eventDate) && (
+                <div className="flex items-center gap-3 pt-2 border-t border-slate-800/60 text-xs text-slate-400">
+                  {selectedInvoice.eventType && (
+                    <span className="font-medium text-amber-300/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      {selectedInvoice.eventType}
+                    </span>
+                  )}
+                  {selectedInvoice.eventDate && (
+                    <span className="font-mono text-[11px]">
+                      Event: {formatDate(selectedInvoice.eventDate)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Items Breakdown */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Items ({selectedInvoice.items?.length || 0})
+              </span>
+              <div className="max-h-48 overflow-y-auto no-scrollbar rounded-xl border border-slate-800/80 divide-y divide-slate-800/60 bg-slate-950/40 text-xs">
+                {(selectedInvoice.items || []).map((item, idx) => (
+                  <div key={idx} className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-medium text-slate-200 block truncate">
+                        {item.name}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {item.quantity} {item.unit || 'unit'} x {formatCurrency(item.rate || 0, sym)}
+                      </span>
+                    </div>
+                    <span className="font-mono font-semibold text-slate-100 shrink-0">
+                      {formatCurrency((item.quantity || 1) * (item.rate || 0), sym)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Financial Summary */}
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Subtotal</span>
+                <span className="font-mono text-slate-200">{formatCurrency(selectedInvoice.subtotal || selectedInvoice.totalAmount, sym)}</span>
+              </div>
+
+              {selectedInvoice.showPreviousBalance && Number(selectedInvoice.previousBalance) > 0 && (
+                <div className="flex items-center justify-between text-amber-400 font-medium">
+                  <span>Previous Pending Balance</span>
+                  <span className="font-mono">{formatCurrency(selectedInvoice.previousBalance, sym)}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-slate-200 font-semibold pt-1 border-t border-slate-800">
+                <span>Total Amount</span>
+                <span className="font-mono font-bold text-sm text-slate-100">{formatCurrency(selectedInvoice.totalAmount, sym)}</span>
+              </div>
+
+              <div className="flex items-center justify-between text-emerald-400">
+                <span>Advance / Paid</span>
+                <span className="font-mono font-semibold">{formatCurrency(selectedInvoice.advancePaid || 0, sym)}</span>
+              </div>
+
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 mt-1">
+                <span className="font-bold text-amber-300">Balance Due</span>
+                <span className="font-mono font-extrabold text-base text-amber-400">
+                  {formatCurrency(selectedInvoice.balanceDue || 0, sym)}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Actions Footer Toolbar */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {selectedInvoice.balanceDue > 0 && !selectedInvoice.isDeleted && selectedInvoice.status !== 'cancelled' && (
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalInvoice(selectedInvoice)}
+                  className="py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Record Payment</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => onViewInvoice(selectedInvoice.id)}
+                className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-amber-400" />
+                <span>Full View & Print</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onEditInvoice(selectedInvoice.id)}
+                className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 font-medium text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                <span>Edit Bill</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => handleWhatsApp(e, selectedInvoice)}
+                className="py-2 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-medium text-xs flex items-center justify-center gap-1.5 border border-emerald-500/25 transition-colors cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Send on WhatsApp</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+      </div>
 
       {/* Record Payment Modal */}
       {paymentModalInvoice && (

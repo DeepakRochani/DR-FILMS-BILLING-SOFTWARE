@@ -452,7 +452,7 @@ export function HourCalculatorPage({
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 w-full max-w-[1720px] mx-auto space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-5 right-5 z-50 bg-amber-500 text-slate-950 px-4 py-2.5 rounded-xl font-semibold shadow-xl shadow-amber-500/20 text-xs flex items-center gap-2 animate-bounce">

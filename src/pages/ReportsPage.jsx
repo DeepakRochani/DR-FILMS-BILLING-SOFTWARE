@@ -112,7 +112,7 @@ export function ReportsPage() {
   ];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="p-4 sm:p-6 lg:p-8 w-full max-w-[1720px] mx-auto space-y-6 pb-16">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-800/80">
         <div>

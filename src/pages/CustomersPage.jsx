@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   Users, 
@@ -17,7 +17,12 @@ import {
   FileText,
   Tag,
   BellOff,
-  Lock
+  Lock,
+  Columns,
+  Share2,
+  X,
+  CheckCircle,
+  CreditCard
 } from 'lucide-react';
 import { db } from '../db/db';
 import { formatCurrency, formatDate, formatInvoiceNumber } from '../utils/formatters';
@@ -40,6 +45,8 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [historyCustomer, setHistoryCustomer] = useState(null);
   const [statementCustomer, setStatementCustomer] = useState(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  const [isSplitPreviewOpen, setIsSplitPreviewOpen] = useState(true);
 
   const [tagFilter, setTagFilter] = useState('all');
 
@@ -113,6 +120,16 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
       (c.email && c.email.toLowerCase().includes(q)) ||
       (c.privateNote && c.privateNote.toLowerCase().includes(q));
   });
+
+  const selectedCustomer = useMemo(() => {
+    if (selectedCustomerId) {
+      const match = filteredCustomers.find(c => c.id === selectedCustomerId);
+      if (match) return match;
+    }
+    return filteredCustomers[0] || null;
+  }, [selectedCustomerId, filteredCustomers]);
+
+  const selectedStats = selectedCustomer ? (customerStats[selectedCustomer.id] || { count: 0, totalBilled: 0, balanceDue: 0, totalPending: 0, oldestUnpaidDate: null, pendingCount: 0, invoices: [] }) : null;
 
   const openAddModal = () => {
     setEditingCustomer(null);
@@ -202,7 +219,7 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 w-full max-w-[1720px] mx-auto space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -215,7 +232,7 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           {deletedCustomerCount > 0 && onGoToTrash && (
             <button
               type="button"
@@ -227,6 +244,17 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
               <span>Trash ({deletedCustomerCount})</span>
             </button>
           )}
+
+          {/* Desktop Split View Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsSplitPreviewOpen(!isSplitPreviewOpen)}
+            className="hidden xl:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 font-medium text-xs py-2.5 px-3.5 rounded-xl border border-slate-700 transition-colors cursor-pointer"
+            title={isSplitPreviewOpen ? 'Switch to Full Width Grid' : 'Switch to Split Screen Preview'}
+          >
+            <Columns className="w-3.5 h-3.5 text-amber-400" />
+            <span>{isSplitPreviewOpen ? 'Full Width' : 'Split View'}</span>
+          </button>
 
           <button
             type="button"
@@ -272,34 +300,47 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
         </div>
       </div>
 
-      {/* Customers List */}
-      {filteredCustomers.length === 0 ? (
-        <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80 p-6">
-          <Users className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-          <h4 className="text-base font-semibold text-slate-300">No clients found</h4>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            {search || tagFilter !== 'all' ? 'Try clearing your filters or search query.' : 'Add your first creative client to start generating bills.'}
-          </p>
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="mt-4 inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold px-4 py-2 rounded-xl border border-slate-700"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Client</span>
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredCustomers.map((c) => {
-            const stats = customerStats[c.id] || { count: 0, totalBilled: 0, balanceDue: 0, invoices: [] };
-            const clientTag = c.tag || 'Regular';
-
-            return (
-              <div
-                key={c.id}
-                className="glass-card rounded-2xl p-5 flex flex-col justify-between hover:border-slate-700 transition-all group"
+      {/* Main Content Area: Split View on Desktop */}
+      <div className="flex flex-col xl:flex-row gap-6 items-start">
+        {/* Left Column: Customers Grid */}
+        <div className={`w-full transition-all duration-300 ${isSplitPreviewOpen && selectedCustomer && filteredCustomers.length > 0 ? 'xl:w-7/12 2xl:w-3/5' : 'w-full'} space-y-4`}>
+          {filteredCustomers.length === 0 ? (
+            <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80 p-6">
+              <Users className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <h4 className="text-base font-semibold text-slate-300">No clients found</h4>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                {search || tagFilter !== 'all' ? 'Try clearing your filters or search query.' : 'Add your first creative client to start generating bills.'}
+              </p>
+              <button
+                type="button"
+                onClick={openAddModal}
+                className="mt-4 inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold px-4 py-2 rounded-xl border border-slate-700"
               >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Client</span>
+              </button>
+            </div>
+          ) : (
+            <div className={`grid grid-cols-1 md:grid-cols-2 ${isSplitPreviewOpen && selectedCustomer ? 'xl:grid-cols-2' : 'lg:grid-cols-3'} gap-4`}>
+              {filteredCustomers.map((c) => {
+                const stats = customerStats[c.id] || { count: 0, totalBilled: 0, balanceDue: 0, invoices: [] };
+                const clientTag = c.tag || 'Regular';
+                const isSelected = selectedCustomer?.id === c.id;
+
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setSelectedCustomerId(c.id)}
+                    className={`glass-card rounded-2xl p-5 flex flex-col justify-between transition-all group cursor-pointer relative ${
+                      isSelected && isSplitPreviewOpen
+                        ? 'border-amber-500/60 bg-amber-500/5 ring-1 ring-amber-500/40 shadow-lg shadow-amber-500/5'
+                        : 'hover:border-slate-700'
+                    }`}
+                  >
+                    {/* Active Selected Indicator */}
+                    {isSelected && isSplitPreviewOpen && (
+                      <div className="hidden xl:block absolute left-0 top-3 bottom-3 w-1 bg-amber-400 rounded-r-full" />
+                    )}
                 <div>
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="min-w-0">
@@ -438,6 +479,240 @@ export function CustomersPage({ onViewInvoice, onNewInvoiceForCustomer, onGoToTr
           })}
         </div>
       )}
+      </div>
+
+      {/* Right Column: Live Client Profile & Ledger Preview Panel */}
+      {isSplitPreviewOpen && selectedCustomer && filteredCustomers.length > 0 && (
+        <div className="hidden xl:flex xl:w-5/12 2xl:w-2/5 flex-col sticky top-6 self-start space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="glass-card rounded-2xl border border-slate-800 bg-slate-900/70 p-5 backdrop-blur-xl shadow-2xl space-y-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-800/80">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    Client Profile & Ledger
+                  </span>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${CLIENT_TAG_STYLES[selectedCustomer.tag || 'Regular'] || CLIENT_TAG_STYLES.Regular}`}>
+                    {selectedCustomer.tag || 'Regular'}
+                  </span>
+                  {selectedCustomer.dontRemind && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                      <BellOff className="w-2.5 h-2.5" />
+                      <span>Muted</span>
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-xl font-bold text-slate-100 mt-2 truncate">
+                  {selectedCustomer.name}
+                </h3>
+                {selectedCustomer.company && (
+                  <p className="text-xs text-amber-400 font-medium flex items-center gap-1.5 mt-0.5 truncate">
+                    <Building2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>{selectedCustomer.company}</span>
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSplitPreviewOpen(false)}
+                className="p-1.5 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors"
+                title="Close preview panel (switch to full width)"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Contact & Info Grid */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold block">Phone & WhatsApp</span>
+                {selectedCustomer.phone ? (
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-slate-200 font-mono text-xs truncate">{selectedCustomer.phone}</span>
+                    <a
+                      href={`https://wa.me/${selectedCustomer.phone.replace(/[^0-9]/g, '')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                      title="Chat on WhatsApp"
+                    >
+                      <Phone className="w-3 h-3" />
+                    </a>
+                  </div>
+                ) : (
+                  <span className="text-slate-500 text-xs italic">No phone added</span>
+                )}
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold block">Email Address</span>
+                {selectedCustomer.email ? (
+                  <a
+                    href={`mailto:${selectedCustomer.email}`}
+                    className="text-amber-400 hover:underline text-xs truncate block"
+                    title={selectedCustomer.email}
+                  >
+                    {selectedCustomer.email}
+                  </a>
+                ) : (
+                  <span className="text-slate-500 text-xs italic">No email added</span>
+                )}
+              </div>
+
+              {selectedCustomer.gstin && (
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1 col-span-2">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold block">GSTIN / Tax ID</span>
+                  <span className="font-mono text-xs text-slate-300">{selectedCustomer.gstin}</span>
+                </div>
+              )}
+
+              {selectedCustomer.address && (
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1 col-span-2">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold block">Studio / Billing Address</span>
+                  <span className="text-xs text-slate-300 leading-relaxed block">{selectedCustomer.address}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Private Studio Note */}
+            {(selectedCustomer.privateNote || selectedCustomer.notes) && (
+              <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs">
+                <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-[11px] mb-1">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Private Studio Note</span>
+                </div>
+                <p className="text-slate-300 italic text-[11px] leading-relaxed">
+                  {selectedCustomer.privateNote || selectedCustomer.notes}
+                </p>
+              </div>
+            )}
+
+            {/* Lifetime Financial Snapshot */}
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
+                Lifetime Account Snapshot
+              </span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase block">Total Invoiced</span>
+                  <span className="text-base font-bold font-display text-slate-100">
+                    {formatCurrency(selectedStats?.totalBilled || 0, sym)}
+                  </span>
+                  <span className="block text-[10px] text-slate-400 mt-0.5">
+                    {selectedStats?.count || 0} {(selectedStats?.count || 0) === 1 ? 'bill generated' : 'bills generated'}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase block">Outstanding Balance</span>
+                  <span className={`text-base font-bold font-display ${(selectedStats?.totalPending || 0) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {formatCurrency(selectedStats?.totalPending || 0, sym)}
+                  </span>
+                  {selectedStats?.oldestUnpaidDate ? (
+                    <span className="block text-[10px] text-rose-400 font-mono mt-0.5">
+                      Due since {formatDate(selectedStats.oldestUnpaidDate)}
+                    </span>
+                  ) : (
+                    <span className="block text-[10px] text-emerald-400 font-medium mt-0.5">
+                      Account fully settled
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Bills List */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Recent Bills for this Client</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHistoryCustomer({ ...selectedCustomer, stats: selectedStats })}
+                  className="text-[11px] text-amber-400 hover:text-amber-300 hover:underline"
+                >
+                  View All ({selectedStats?.invoices?.length || 0})
+                </button>
+              </div>
+
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {selectedStats?.invoices && selectedStats.invoices.length > 0 ? (
+                  selectedStats.invoices.slice(0, 4).map((inv) => (
+                    <div
+                      key={inv.id}
+                      onClick={() => onViewInvoice?.(inv.id)}
+                      className="p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-800/60 border border-slate-800/80 transition-all flex items-center justify-between gap-3 text-xs cursor-pointer group"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-slate-200 group-hover:text-amber-400 transition-colors">
+                            {formatInvoiceNumber(inv.invoiceNumber)}
+                          </span>
+                          <StatusBadge status={inv.status} size="sm" />
+                        </div>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">
+                          {formatDate(inv.invoiceDate || inv.createdAt)}
+                        </span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-display font-semibold text-slate-200 block">
+                          {formatCurrency(inv.totalAmount || 0, sym)}
+                        </span>
+                        {inv.balanceDue > 0 ? (
+                          <span className="text-[10px] text-amber-400 font-mono block">
+                            Due: {formatCurrency(inv.balanceDue, sym)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-emerald-400 font-medium block">
+                            Settled
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-3 text-center rounded-xl bg-slate-950/40 border border-dashed border-slate-800 text-xs text-slate-500">
+                    No bills issued yet for this client
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Action Buttons */}
+            <div className="pt-2 border-t border-slate-800/80 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => onNewInvoiceForCustomer(selectedCustomer)}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-md shadow-amber-500/10 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Bill</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStatementCustomer(selectedCustomer)}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-sky-400" />
+                <span>Statement</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openEditModal(selectedCustomer)}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Edit Info</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
 
       {/* Add / Edit Client Modal */}
       <Modal
