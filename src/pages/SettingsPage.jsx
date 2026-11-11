@@ -87,9 +87,79 @@ import {
   isWebAuthnAvailable, 
   enrollBiometrics 
 } from '../utils/security';
+import { calculateSubscriptionStatus, activateWithLicenseKey, PLAN_TIERS } from '../utils/licenseManager';
+import { isFeatureAllowedByLicense } from '../utils/licenseCrypto';
+
+export const STUDIO_FEATURE_ITEMS = [
+  { key: 'enableQuotes', name: 'Estimates & Quotations', desc: 'Estimates, quotations, and client proposals' },
+  { key: 'enableProjects', name: 'Projects & Crew Tracker', desc: 'Shoot scheduling, crew assignments, and checklists' },
+  { key: 'enableExpenses', name: 'Expenses & Net Profit', desc: 'Studio expenses, vendor payments, and net profit' },
+  { key: 'enableReports', name: 'Tax & Accountant Reports', desc: 'Accountant monthly GST summaries and balance sheets' },
+  { key: 'enableHourCalculator', name: 'Hour & Shift Calculator', desc: 'Shift duration calculator with overtime rates' },
+  { key: 'enableWeddingSuite', name: 'Wedding Studio Suite', desc: 'Wedding rate-only bills and multi-day shoot events' },
+  { key: 'enableContracts', name: 'Legal Service Agreements', desc: 'Legal client contracts and signature agreements' },
+  { key: 'enableReceipts', name: 'Official Payment Receipts', desc: 'Payment receipt vouchers with QR code verification' },
+  { key: 'enableWhatsApp', name: 'WhatsApp Invoicing & Reminders', desc: '1-click WhatsApp bill delivery and payment alerts' },
+  { key: 'enableGoogleSheets', name: 'Google Sheets Cloud Backup', desc: 'Automated background sync to Google Sheets' },
+  { key: 'enableDirectClient', name: 'Direct Client Fast Billing', desc: 'Fast billing for walk-in clients without saving to directory' },
+  { key: 'enableThemeSwitcher', name: 'Invoice Themes & Styling', desc: 'Cinematic invoice themes and custom color styling' }
+];
 
 export function SettingsPage() {
   const settings = useLiveQuery(() => db.settings.get('business_profile'));
+
+  // Studio Subscription & Feature State
+  const subscriptionConfig = useLiveQuery(() => {
+    if (!db.settings) return null;
+    return db.settings.get('admin_subscription_config');
+  });
+
+  const billsTotalCount = useLiveQuery(async () => {
+    if (!db.bills) return 0;
+    try {
+      return await db.bills.count();
+    } catch {
+      return 0;
+    }
+  }, [], 0);
+
+  const subStatus = calculateSubscriptionStatus(subscriptionConfig, billsTotalCount);
+
+  const [licenseInput, setLicenseInput] = useState('');
+  const [licenseActivating, setLicenseActivating] = useState(false);
+  const [licenseFeedback, setLicenseFeedback] = useState(null);
+
+  const handleActivateLicense = async (e) => {
+    e?.preventDefault?.();
+    if (!licenseInput.trim()) {
+      setLicenseFeedback({ type: 'error', message: 'Please enter or paste your signed license key string.' });
+      return;
+    }
+    setLicenseActivating(true);
+    setLicenseFeedback(null);
+    try {
+      const res = await activateWithLicenseKey(licenseInput.trim());
+      if (res.success) {
+        setLicenseFeedback({
+          type: 'success',
+          message: `License key activated successfully for ${res.payload?.customerName || 'Studio'}! Tier: ${res.payload?.planTier?.toUpperCase() || 'PRO'}. All features updated.`
+        });
+        setLicenseInput('');
+      } else {
+        setLicenseFeedback({
+          type: 'error',
+          message: res.error || 'Failed to activate license key. Please check your key string.'
+        });
+      }
+    } catch (err) {
+      setLicenseFeedback({
+        type: 'error',
+        message: err.message || 'Error occurred while activating license.'
+      });
+    } finally {
+      setLicenseActivating(false);
+    }
+  };
 
   const [formData, setFormData] = useState({
     businessName: '',
@@ -3605,6 +3675,174 @@ function doGet(e) {
             </div>
           </form>
         )}
+      </div>
+
+      {/* Studio Commercial Subscription & Features */}
+      <div className="glass-card rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <Key className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-100">
+                Studio Subscription & Features
+              </h3>
+              <p className="text-xs text-slate-400">
+                Active commercial license plan, granted studio modules, and license renewal
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+              subStatus.isLifetime
+                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                : subStatus.planTier === 'pro'
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                : subStatus.planTier === 'starter'
+                ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                : 'bg-slate-800 text-slate-300 border-slate-700'
+            }`}>
+              {subStatus.planName || PLAN_TIERS[subStatus.planTier]?.name || 'Pro Studio Suite'}
+            </span>
+          </div>
+        </div>
+
+        {/* Plan Overview Metrics */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Validity & Expiry</span>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-100">
+                {subStatus.isLifetime ? 'Lifetime Perpetual' : (subStatus.formattedExpiry || '365 Days')}
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
+                {subStatus.isLifetime ? 'Never Expires' : `${subStatus.daysRemaining ?? 365}d left`}
+              </span>
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Invoices Quota</span>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-100">
+                {subStatus.billsRemaining != null ? `${subStatus.billsRemaining} remaining` : 'Unlimited Bills'}
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {billsTotalCount} created
+              </span>
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Module Entitlement</span>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-100">
+                {STUDIO_FEATURE_ITEMS.filter(f => isFeatureAllowedByLicense(f.key, subStatus.allowedFeatures)).length} / {STUDIO_FEATURE_ITEMS.length} Modules
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-medium">
+                Active
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Feature Entitlements Matrix */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Granted Studio Features
+            </h4>
+            <span className="text-[11px] text-slate-400">
+              Features authorized by your license key
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {STUDIO_FEATURE_ITEMS.map((item) => {
+              const isAllowed = isFeatureAllowedByLicense(item.key, subStatus.allowedFeatures);
+              return (
+                <div
+                  key={item.key}
+                  className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                    isAllowed
+                      ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700'
+                      : 'bg-slate-950/60 border-slate-800/40 opacity-55'
+                  }`}
+                >
+                  <div className="min-w-0 pr-2">
+                    <span className={`text-xs font-semibold block truncate ${isAllowed ? 'text-slate-200' : 'text-slate-400'}`}>
+                      {item.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400 line-clamp-1">
+                      {item.desc}
+                    </span>
+                  </div>
+                  <div className="shrink-0">
+                    {isAllowed ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-semibold text-emerald-400">
+                        <Check className="w-3 h-3 stroke-[2.5]" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-[10px] font-medium text-slate-400">
+                        <Lock className="w-3 h-3" />
+                        Restricted
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* License Key Activation Box */}
+        <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800 space-y-3">
+          <div className="flex items-center gap-2">
+            <Key className="w-4 h-4 text-amber-400" />
+            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Activate License Key
+            </h4>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Paste a signed cryptographic license key provided by your software administrator to upgrade tiers, renew duration, or unlock custom studio features.
+          </p>
+
+          <form onSubmit={handleActivateLicense} className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={licenseInput}
+                onChange={(e) => setLicenseInput(e.target.value)}
+                placeholder="Paste your license key string..."
+                className="flex-1 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-400 font-mono outline-none"
+              />
+              <button
+                type="submit"
+                disabled={licenseActivating || !licenseInput.trim()}
+                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-amber-500/20 shrink-0"
+              >
+                {licenseActivating ? 'Verifying...' : 'Activate Key'}
+              </button>
+            </div>
+
+            {licenseFeedback && (
+              <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                licenseFeedback.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                {licenseFeedback.type === 'success' ? (
+                  <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                )}
+                <span>{licenseFeedback.message}</span>
+              </div>
+            )}
+          </form>
+        </div>
       </div>
 
       {/* Card 6: Offline Storage & JSON Backup / Restore */}

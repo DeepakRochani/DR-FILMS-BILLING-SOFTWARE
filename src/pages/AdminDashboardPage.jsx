@@ -15,25 +15,29 @@ import {
   Lock, 
   Unlock, 
   Plus, 
-  Sparkles,
-  RefreshCw,
-  LogOut,
-  Clock,
-  Layers,
-  FileSpreadsheet,
-  Briefcase,
-  Wallet,
-  Percent,
-  Receipt,
-  MessageSquare,
-  Database,
-  CheckSquare,
-  ExternalLink,
-  QrCode,
-  Calendar,
-  X,
-  ChevronRight,
-  ShieldAlert
+  Sparkles, 
+  RefreshCw, 
+  LogOut, 
+  Clock, 
+  Layers, 
+  FileSpreadsheet, 
+  Briefcase, 
+  Wallet, 
+  Percent, 
+  Receipt, 
+  MessageSquare, 
+  Database, 
+  CheckSquare, 
+  ExternalLink, 
+  QrCode, 
+  Calendar, 
+  X, 
+  ChevronRight, 
+  ShieldAlert,
+  Sliders,
+  CheckCircle2,
+  Settings,
+  UserPlus
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -47,18 +51,18 @@ import {
 import { generateQrDataUrl } from '../utils/qrGenerator';
 
 export const FEATURE_MODULES = [
-  { key: 'enableQuotes', name: 'Estimates & Quotations', category: 'Billing Core', icon: FileSpreadsheet },
-  { key: 'enableProjects', name: 'Projects & Crew Tracker', category: 'Production', icon: Briefcase },
-  { key: 'enableExpenses', name: 'Expenses & Net Profit', category: 'Finance', icon: Wallet },
-  { key: 'enableReports', name: 'Tax & Accountant Reports', category: 'Finance', icon: Percent },
-  { key: 'enableHourCalculator', name: 'Hour & Shift Calculator', category: 'Production', icon: Clock },
-  { key: 'enableWeddingSuite', name: 'Wedding Studio Suite', category: 'Studio Specialized', icon: Sparkles },
-  { key: 'enableContracts', name: 'Legal Service Agreements', category: 'Legal & Compliance', icon: FileText },
-  { key: 'enableReceipts', name: 'Official Payment Receipts', category: 'Billing Core', icon: Receipt },
-  { key: 'enableWhatsApp', name: 'WhatsApp Invoicing & Reminders', category: 'Client Delivery', icon: MessageSquare },
-  { key: 'enableGoogleSheets', name: 'Google Sheets Cloud Backup', category: 'Integration', icon: Database },
-  { key: 'enableDirectClient', name: 'Direct Client Fast Billing', category: 'Billing Core', icon: CheckSquare },
-  { key: 'enableThemeSwitcher', name: 'Invoice Themes & Styling', category: 'Branding', icon: Layers }
+  { key: 'enableQuotes', name: 'Estimates & Quotations', category: 'Billing Core', icon: FileSpreadsheet, description: 'Estimates, quotations, and client proposals' },
+  { key: 'enableProjects', name: 'Projects & Crew Tracker', category: 'Production', icon: Briefcase, description: 'Shoot scheduling, crew assignments, and checklists' },
+  { key: 'enableExpenses', name: 'Expenses & Net Profit', category: 'Finance', icon: Wallet, description: 'Studio expenses, vendor payments, and net profit' },
+  { key: 'enableReports', name: 'Tax & Accountant Reports', category: 'Finance', icon: Percent, description: 'Accountant monthly GST summaries and balance sheets' },
+  { key: 'enableHourCalculator', name: 'Hour & Shift Calculator', category: 'Production', icon: Clock, description: 'Shift duration calculator with overtime rates' },
+  { key: 'enableWeddingSuite', name: 'Wedding Studio Suite', category: 'Studio Specialized', icon: Sparkles, description: 'Wedding rate-only bills and multi-day shoot events' },
+  { key: 'enableContracts', name: 'Legal Service Agreements', category: 'Legal & Compliance', icon: FileText, description: 'Legal client contracts and signature agreements' },
+  { key: 'enableReceipts', name: 'Official Payment Receipts', category: 'Billing Core', icon: Receipt, description: 'Payment receipt vouchers with QR code verification' },
+  { key: 'enableWhatsApp', name: 'WhatsApp Invoicing & Reminders', category: 'Client Delivery', icon: MessageSquare, description: '1-click WhatsApp bill delivery and payment alerts' },
+  { key: 'enableGoogleSheets', name: 'Google Sheets Cloud Backup', category: 'Integration', icon: Database, description: 'Automated background sync to Google Sheets' },
+  { key: 'enableDirectClient', name: 'Direct Client Fast Billing', category: 'Billing Core', icon: CheckSquare, description: 'Fast billing for walk-in clients without saving to directory' },
+  { key: 'enableThemeSwitcher', name: 'Invoice Themes & Styling', category: 'Branding', icon: Layers, description: 'Cinematic invoice themes and custom color styling' }
 ];
 
 export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
@@ -89,6 +93,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
   const [isLifetime, setIsLifetime] = useState(false);
   const [billLimit, setBillLimit] = useState('');
   const [planNotes, setPlanNotes] = useState('');
+  const [selectedFeatures, setSelectedFeatures] = useState(() => FEATURE_MODULES.map(f => f.key));
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedLicenseResult, setGeneratedLicenseResult] = useState(null);
   const [licenseQrCodeUrl, setLicenseQrCodeUrl] = useState('');
@@ -115,6 +120,28 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
   const [customerTierFilter, setCustomerTierFilter] = useState('all');
   const [editingNotesId, setEditingNotesId] = useState(null);
   const [editingNotesText, setEditingNotesText] = useState('');
+
+  // Feature Management Modal for an existing customer
+  const [featureModalCustomer, setFeatureModalCustomer] = useState(null);
+  const [modalSelectedFeatures, setModalSelectedFeatures] = useState([]);
+  const [modalPlanTier, setModalPlanTier] = useState('pro');
+  const [modalDurationDays, setModalDurationDays] = useState(365);
+  const [modalIsLifetime, setModalIsLifetime] = useState(false);
+  const [modalBillLimit, setModalBillLimit] = useState('');
+  const [modalNotice, setModalNotice] = useState(null);
+  const [isModalSaving, setIsModalSaving] = useState(false);
+  const [modalGeneratedKey, setModalGeneratedKey] = useState(null);
+  const [modalQrUrl, setModalQrUrl] = useState('');
+
+  // Add New Customer Modal
+  const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustTier, setNewCustTier] = useState('pro');
+  const [newCustDays, setNewCustDays] = useState(365);
+  const [newCustLifetime, setNewCustLifetime] = useState(false);
+  const [newCustFeatures, setNewCustFeatures] = useState(() => FEATURE_MODULES.map(f => f.key));
+  const [newCustNotes, setNewCustNotes] = useState('');
+  const [newCustNotice, setNewCustNotice] = useState(null);
 
   // Revocation List Management (persisted in Dexie settings)
   const revocationRecord = useLiveQuery(
@@ -148,7 +175,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     reader.onload = async (event) => {
       try {
         const content = event.target.result;
-        // Verify key by importing to CryptoKey in memory
         const subtleKey = await importPrivateKeyInMemory(content);
         setPrivateKeyInMemory(subtleKey);
         setKeyLoadedName(file.name);
@@ -191,6 +217,53 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     setKeyError(null);
   };
 
+  // Toggle manual feature in License Issuing Tab
+  const handleToggleManualFeature = (featureKey) => {
+    setSelectedFeatures(prev => {
+      if (prev.includes(featureKey)) {
+        return prev.filter(k => k !== featureKey);
+      } else {
+        return [...prev, featureKey];
+      }
+    });
+  };
+
+  // Preset feature selections for License Issuing Tab
+  const handleSelectAllFeatures = () => {
+    setSelectedFeatures(FEATURE_MODULES.map(f => f.key));
+  };
+
+  const handleDeselectAllFeatures = () => {
+    setSelectedFeatures([]);
+  };
+
+  const handleSelectCoreInvoicingFeatures = () => {
+    setSelectedFeatures(['enableQuotes', 'enableReceipts', 'enableWhatsApp', 'enableDirectClient', 'enableThemeSwitcher']);
+  };
+
+  const handleSelectProductionFeatures = () => {
+    setSelectedFeatures(['enableQuotes', 'enableProjects', 'enableHourCalculator', 'enableReceipts', 'enableDirectClient']);
+  };
+
+  // Handle plan tier change with smart feature defaults
+  const handlePlanTierChange = (newTier) => {
+    setPlanTier(newTier);
+    if (newTier === 'enterprise') {
+      setIsLifetime(true);
+      setSelectedFeatures(FEATURE_MODULES.map(f => f.key));
+    } else if (newTier === 'pro') {
+      setIsLifetime(false);
+      setSelectedFeatures(FEATURE_MODULES.map(f => f.key));
+    } else if (newTier === 'starter') {
+      setIsLifetime(false);
+      setSelectedFeatures(['enableQuotes', 'enableProjects', 'enableExpenses', 'enableReceipts', 'enableWhatsApp', 'enableDirectClient', 'enableThemeSwitcher']);
+    } else if (newTier === 'trial') {
+      setIsLifetime(false);
+      setDurationDays(14);
+      setSelectedFeatures(['enableQuotes', 'enableReceipts', 'enableWhatsApp', 'enableDirectClient', 'enableThemeSwitcher']);
+    }
+  };
+
   // 4. Issue a signed license key
   const handleGenerateKey = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -210,13 +283,15 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
     try {
       const limitVal = billLimit !== '' && !isNaN(Number(billLimit)) ? Number(billLimit) : null;
+      const allowedFeaturesPayload = selectedFeatures.length === FEATURE_MODULES.length ? ['*'] : selectedFeatures;
+
       const res = await generateLicenseKeyAsync({
         privateKey: privateKeyInMemory,
         planTier,
         durationDays: isLifetime ? 0 : Number(durationDays),
         isLifetime,
         clientCode: customerName.trim(),
-        allowedFeatures: ['*'],
+        allowedFeatures: allowedFeaturesPayload,
         billLimit: limitVal,
         notes: planNotes.trim()
       });
@@ -242,6 +317,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
         issueDate: res.payload.issueDate,
         expiryDate: res.payload.expiryDate,
         billLimit: res.payload.billLimit,
+        allowedFeatures: res.payload.allowedFeatures || allowedFeaturesPayload,
         licenseKey: res.key,
         notes: planNotes.trim(),
         createdAt: new Date().toISOString()
@@ -251,7 +327,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
       const updated = [newCustomerItem, ...existing.filter(c => c.id !== newCustomerItem.id)];
       await db.settings.put({ key: 'admin_customer_directory', data: updated });
 
-      setIssueNotice({ type: 'success', text: `License issued successfully for ${res.payload.customerName}.` });
+      setIssueNotice({ type: 'success', text: `License issued successfully for ${res.payload.customerName} with ${selectedFeatures.length} manual feature(s) enabled.` });
     } catch (err) {
       setIssueNotice({ type: 'error', text: 'License generation failed: ' + err.message });
     } finally {
@@ -313,7 +389,201 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     setActiveTab('revocations');
   };
 
-  // 9. Add revocation manually
+  // 9. Manage Features Modal Open
+  const handleOpenFeatureModal = (customer) => {
+    setFeatureModalCustomer(customer);
+    setModalPlanTier(customer.planTier || 'pro');
+    setModalIsLifetime(Boolean(customer.isLifetime || customer.planTier === 'enterprise'));
+    setModalBillLimit(customer.billLimit || '');
+    setModalNotice(null);
+    setModalGeneratedKey(null);
+    setModalQrUrl('');
+
+    // Determine currently enabled features
+    const rawAllowed = customer.allowedFeatures;
+    if (!rawAllowed || rawAllowed.includes('*') || rawAllowed.length === 0) {
+      setModalSelectedFeatures(FEATURE_MODULES.map(f => f.key));
+    } else {
+      setModalSelectedFeatures(
+        FEATURE_MODULES.filter(m => {
+          return rawAllowed.some(a => {
+            const cleanA = String(a).toLowerCase().replace(/^enable/, '');
+            const cleanM = m.key.toLowerCase().replace(/^enable/, '');
+            return cleanA === cleanM || String(a) === m.key;
+          });
+        }).map(m => m.key)
+      );
+    }
+  };
+
+  const handleToggleModalFeature = (featureKey) => {
+    setModalSelectedFeatures(prev => {
+      if (prev.includes(featureKey)) {
+        return prev.filter(k => k !== featureKey);
+      } else {
+        return [...prev, featureKey];
+      }
+    });
+  };
+
+  // 10. Re-Issue Signed License Key with Updated Manual Features
+  const handleSaveCustomerFeatures = async () => {
+    if (!featureModalCustomer) return;
+    setIsModalSaving(true);
+    setModalNotice(null);
+
+    try {
+      const allowedFeaturesPayload = modalSelectedFeatures.length === FEATURE_MODULES.length ? ['*'] : modalSelectedFeatures;
+      let newKey = featureModalCustomer.licenseKey || '';
+      let generatedRes = null;
+
+      if (privateKeyInMemory) {
+        // Re-sign with private key
+        generatedRes = await generateLicenseKeyAsync({
+          privateKey: privateKeyInMemory,
+          planTier: modalPlanTier,
+          durationDays: modalIsLifetime ? 0 : Number(modalDurationDays),
+          isLifetime: modalIsLifetime,
+          clientCode: featureModalCustomer.customerName,
+          allowedFeatures: allowedFeaturesPayload,
+          billLimit: modalBillLimit !== '' ? Number(modalBillLimit) : null,
+          notes: featureModalCustomer.notes || ''
+        });
+        newKey = generatedRes.key;
+        setModalGeneratedKey(generatedRes);
+
+        try {
+          const qr = await generateQrDataUrl(newKey, { width: 300, margin: 1 });
+          setModalQrUrl(qr);
+        } catch {}
+      }
+
+      // Update customer in directory
+      const existing = (await db.settings.get('admin_customer_directory'))?.data || [];
+      const updated = existing.map(c => {
+        if (c.id === featureModalCustomer.id) {
+          return {
+            ...c,
+            planTier: modalPlanTier,
+            isLifetime: modalIsLifetime,
+            allowedFeatures: allowedFeaturesPayload,
+            licenseKey: newKey,
+            billLimit: modalBillLimit !== '' ? Number(modalBillLimit) : null,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return c;
+      });
+
+      await db.settings.put({ key: 'admin_customer_directory', data: updated });
+      setModalNotice({ 
+        type: 'success', 
+        text: privateKeyInMemory 
+          ? `Updated and cryptographically signed new license with ${modalSelectedFeatures.length} feature(s).` 
+          : `Customer profile updated with ${modalSelectedFeatures.length} feature(s). (Load private key in RAM to sign updated ECDSA key).` 
+      });
+    } catch (err) {
+      setModalNotice({ type: 'error', text: 'Error saving features: ' + err.message });
+    } finally {
+      setIsModalSaving(false);
+    }
+  };
+
+  // 11. Apply Features Directly to Local Studio Workspace
+  const handleApplyFeaturesToWorkspace = async () => {
+    if (!featureModalCustomer) return;
+    setIsModalSaving(true);
+    setModalNotice(null);
+
+    try {
+      // 1. Update feature flags in Dexie settings
+      const currentFlags = (await db.settings.get('admin_feature_flags')) || {};
+      const newFlags = {
+        ...currentFlags,
+        key: 'admin_feature_flags'
+      };
+      FEATURE_MODULES.forEach(m => {
+        newFlags[m.key] = modalSelectedFeatures.includes(m.key);
+      });
+      await db.settings.put(newFlags);
+
+      // 2. Update subscription configuration
+      const currentSub = (await db.settings.get('admin_subscription_config')) || {};
+      const allowedFeaturesPayload = modalSelectedFeatures.length === FEATURE_MODULES.length ? ['*'] : modalSelectedFeatures;
+      await db.settings.put({
+        ...currentSub,
+        key: 'admin_subscription_config',
+        clientStudioName: featureModalCustomer.customerName || currentSub.clientStudioName,
+        planTier: modalPlanTier,
+        status: 'active',
+        isLifetime: modalIsLifetime,
+        allowedFeatures: allowedFeaturesPayload,
+        lastRenewedAt: new Date().toISOString()
+      });
+
+      setModalNotice({ 
+        type: 'success', 
+        text: `Successfully applied all ${modalSelectedFeatures.length} features directly to this local studio workspace!` 
+      });
+    } catch (err) {
+      setModalNotice({ type: 'error', text: 'Failed to apply to local workspace: ' + err.message });
+    } finally {
+      setIsModalSaving(false);
+    }
+  };
+
+  // 12. Add New Customer with Manual Features
+  const handleCreateCustomerWithFeatures = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!newCustName.trim()) {
+      setNewCustNotice({ type: 'error', text: 'Studio Name is required.' });
+      return;
+    }
+
+    try {
+      const allowedFeaturesPayload = newCustFeatures.length === FEATURE_MODULES.length ? ['*'] : newCustFeatures;
+      let newKey = '';
+
+      if (privateKeyInMemory) {
+        const res = await generateLicenseKeyAsync({
+          privateKey: privateKeyInMemory,
+          planTier: newCustTier,
+          durationDays: newCustLifetime ? 0 : Number(newCustDays),
+          isLifetime: newCustLifetime,
+          clientCode: newCustName.trim(),
+          allowedFeatures: allowedFeaturesPayload,
+          notes: newCustNotes.trim()
+        });
+        newKey = res.key;
+      }
+
+      const newCustItem = {
+        id: `lic_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 6)}`,
+        customerName: newCustName.trim(),
+        planTier: newCustTier,
+        isLifetime: newCustLifetime,
+        issueDate: new Date().toISOString().split('T')[0],
+        expiryDate: newCustLifetime ? null : new Date(Date.now() + Number(newCustDays) * 86400000).toISOString().split('T')[0],
+        allowedFeatures: allowedFeaturesPayload,
+        licenseKey: newKey,
+        notes: newCustNotes.trim(),
+        createdAt: new Date().toISOString()
+      };
+
+      const existing = (await db.settings.get('admin_customer_directory'))?.data || [];
+      const updated = [newCustItem, ...existing];
+      await db.settings.put({ key: 'admin_customer_directory', data: updated });
+
+      setIsAddCustomerOpen(false);
+      setNewCustName('');
+      setNewCustNotes('');
+      setNewCustNotice(null);
+    } catch (err) {
+      setNewCustNotice({ type: 'error', text: 'Failed to create customer: ' + err.message });
+    }
+  };
+
+  // 13. Revocation actions
   const handleAddRevocation = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!newRevokeId.trim()) return;
@@ -339,7 +609,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     setRevocationNotice({ type: 'success', text: `Added ${newRevokeId.trim()} to revocation list.` });
   };
 
-  // 10. Remove revocation from list
   const handleRemoveRevocation = async (licenseId) => {
     const existing = (await db.settings.get('admin_revoked_licenses'))?.data || [];
     const updated = existing.filter(r => r.licenseId !== licenseId);
@@ -347,7 +616,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     setSignedRevocationJson(null);
   };
 
-  // 11. Sign Revocation List using in-memory private key
   const handleSignRevocationList = async () => {
     if (!privateKeyInMemory) {
       setRevocationNotice({ type: 'error', text: 'Private key must be loaded into memory to sign revocation lists.' });
@@ -373,7 +641,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     }
   };
 
-  // 12. Download signed revoked.json
   const handleDownloadRevocationJson = () => {
     if (!signedRevocationJson) return;
     const blob = new Blob([JSON.stringify(signedRevocationJson, null, 2)], { type: 'application/json' });
@@ -414,7 +681,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
   const [remoteFetchNotice, setRemoteFetchNotice] = useState(null);
   const [copiedBillId, setCopiedBillId] = useState(null);
 
-  // Live query of local Dexie invoices
   const localInvoices = useLiveQuery(
     async () => {
       if (!db.invoices) return [];
@@ -430,7 +696,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     []
   );
 
-  // Live query of local customers to resolve customer names
   const localCustomers = useLiveQuery(
     async () => {
       if (!db.customers) return [];
@@ -478,7 +743,6 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     }
   }, [activeTab]);
 
-  // Combined list of admin invoices: local + remote (deduplicated)
   const combinedAdminInvoices = React.useMemo(() => {
     const map = new Map();
     const customerMap = new Map();
@@ -871,7 +1135,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                   {/* Plan Tier Selector Cards */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-2">
-                      Subscription Plan Tier
+                      Subscription Plan Model
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {[
@@ -884,14 +1148,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                         return (
                           <div
                             key={t.id}
-                            onClick={() => {
-                              setPlanTier(t.id);
-                              if (t.id === 'enterprise') {
-                                setIsLifetime(true);
-                              } else {
-                                setIsLifetime(false);
-                              }
-                            }}
+                            onClick={() => handlePlanTierChange(t.id)}
                             className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
                               isSelected
                                 ? 'bg-amber-500/15 border-amber-500/60 shadow-md shadow-amber-500/10'
@@ -910,6 +1167,75 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                             </div>
                             <span className="text-[11px] text-slate-400 block">{t.desc}</span>
                             <span className="text-[10px] text-amber-400/80 font-mono mt-1 block">{t.limit}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Manual Feature Selection Switchboard */}
+                  <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950/60 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Included Studio Features ({selectedFeatures.length}/{FEATURE_MODULES.length})</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Manually select features to grant in this license key
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllFeatures}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 transition cursor-pointer"
+                        >
+                          Select All (12)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSelectCoreInvoicingFeatures}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 transition cursor-pointer"
+                        >
+                          Core Invoicing
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllFeatures}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-[10px] font-semibold text-slate-400 hover:text-rose-300 transition cursor-pointer"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 max-h-60 overflow-y-auto no-scrollbar">
+                      {FEATURE_MODULES.map((mod) => {
+                        const isChecked = selectedFeatures.includes(mod.key);
+                        const ModIcon = mod.icon;
+                        return (
+                          <div
+                            key={mod.key}
+                            onClick={() => handleToggleManualFeature(mod.key)}
+                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                              isChecked
+                                ? 'bg-amber-500/10 border-amber-500/40 text-slate-100'
+                                : 'bg-slate-900/40 border-slate-800/80 text-slate-400 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <ModIcon className={`w-3.5 h-3.5 shrink-0 ${isChecked ? 'text-amber-400' : 'text-slate-500'}`} />
+                              <div className="truncate">
+                                <span className="text-[11px] font-semibold block leading-tight truncate">{mod.name}</span>
+                                <span className="text-[9px] text-slate-500 block leading-tight">{mod.category}</span>
+                              </div>
+                            </div>
+                            <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                              isChecked ? 'bg-amber-500 border-amber-500' : 'border-slate-700 bg-slate-950'
+                            }`}>
+                              {isChecked && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
+                            </div>
                           </div>
                         );
                       })}
@@ -1092,9 +1418,9 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Expiration</span>
-                          <span className="text-slate-200">
-                            {generatedLicenseResult.payload.isLifetime ? 'Lifetime' : generatedLicenseResult.payload.expiryDate}
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Features</span>
+                          <span className="text-emerald-400 font-medium">
+                            {selectedFeatures.length === FEATURE_MODULES.length ? 'All Features (12)' : `${selectedFeatures.length} Custom Features`}
                           </span>
                         </div>
                       </div>
@@ -1106,7 +1432,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                       </div>
                       <span className="text-xs font-semibold text-slate-300 block">No License Generated Yet</span>
                       <p className="text-[11px] text-slate-500 max-w-xs mt-1 leading-relaxed">
-                        Fill in customer details on the left and click "Generate Signed License Key" to create a signed certificate and QR code.
+                        Fill in customer details on the left, pick which features to grant, and click "Generate Signed License Key".
                       </p>
                     </div>
                   )}
@@ -1148,7 +1474,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                     <span>Customer List & Plan Notes</span>
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Manage studio customers, record subscription payment notes, and inspect license statuses.
+                    Manage studio customers, record subscription payment notes, and add or adjust features manually.
                   </p>
                 </div>
 
@@ -1160,7 +1486,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
                       placeholder="Search studios or notes..."
-                      className="bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-200 outline-none w-48 sm:w-60 transition"
+                      className="bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-200 outline-none w-44 sm:w-56 transition"
                     />
                   </div>
 
@@ -1175,12 +1501,24 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                     <option value="starter">Starter ({customerMetrics.starterCount})</option>
                     <option value="trial">Trial ({customerMetrics.trialCount})</option>
                   </select>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddCustomerOpen(true);
+                      setNewCustFeatures(FEATURE_MODULES.map(f => f.key));
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Add Studio User</span>
+                  </button>
                 </div>
               </div>
 
               {filteredCustomers.length === 0 ? (
                 <div className="p-10 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
-                  {customerSearch ? 'No studio customers match your search.' : 'No customer licenses issued yet. Generate your first license from the "License Issuing" tab.'}
+                  {customerSearch ? 'No studio customers match your search.' : 'No customer licenses issued yet. Generate your first license from the "License Issuing" tab or click "Add Studio User".'}
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
@@ -1189,107 +1527,131 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                       <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                         <th className="py-3 px-4">Studio / Customer</th>
                         <th className="py-3 px-3">Plan Tier</th>
-                        <th className="py-3 px-3">Issued Date</th>
+                        <th className="py-3 px-3">Features Enabled</th>
                         <th className="py-3 px-3">Expiry</th>
                         <th className="py-3 px-3">Plan Notes (Click to Edit)</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 bg-slate-900/30">
-                      {filteredCustomers.map((cust) => (
-                        <tr key={cust.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-bold text-amber-300 text-xs shrink-0">
-                                {cust.customerName?.slice(0, 2).toUpperCase() || 'ST'}
+                      {filteredCustomers.map((cust) => {
+                        const rawAllowed = cust.allowedFeatures;
+                        const isAll = !rawAllowed || rawAllowed.includes('*');
+                        const featureCount = isAll ? FEATURE_MODULES.length : (Array.isArray(rawAllowed) ? rawAllowed.length : 0);
+
+                        return (
+                          <tr key={cust.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-bold text-amber-300 text-xs shrink-0">
+                                  {cust.customerName?.slice(0, 2).toUpperCase() || 'ST'}
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-100 block">{cust.customerName}</span>
+                                  <span className="font-mono text-[10px] text-slate-500">{cust.id}</span>
+                                </div>
                               </div>
-                              <div>
-                                <span className="font-bold text-slate-100 block">{cust.customerName}</span>
-                                <span className="font-mono text-[10px] text-slate-500">{cust.id}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-3">
-                            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold uppercase tracking-wider border ${
-                              cust.planTier === 'enterprise'
-                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                : cust.planTier === 'pro'
-                                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                                : 'bg-slate-800 text-slate-300 border-slate-700'
-                            }`}>
-                              {cust.planTier}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-3 text-slate-400 font-mono text-[11px]">{cust.issueDate || 'N/A'}</td>
-                          <td className="py-3.5 px-3">
-                            <span className={`font-mono text-[11px] font-medium ${
-                              cust.isLifetime ? 'text-emerald-400 font-bold' : 'text-slate-300'
-                            }`}>
-                              {cust.isLifetime ? 'Perpetual Lifetime' : (cust.expiryDate || 'N/A')}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-3 max-w-xs">
-                            {editingNotesId === cust.id ? (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="text"
-                                  value={editingNotesText}
-                                  onChange={(e) => setEditingNotesText(e.target.value)}
-                                  className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 w-full outline-none focus:border-amber-500"
-                                  autoFocus
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveNotes(cust.id)}
-                                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold uppercase tracking-wider border ${
+                                cust.planTier === 'enterprise'
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                  : cust.planTier === 'pro'
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                  : 'bg-slate-800 text-slate-300 border-slate-700'
+                              }`}>
+                                {cust.planTier}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-bold border ${
+                                isAll || featureCount >= FEATURE_MODULES.length
+                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                              }`}>
+                                <Sparkles className="w-3 h-3" />
+                                <span>{isAll ? 'All Features (12)' : `${featureCount} / ${FEATURE_MODULES.length} Features`}</span>
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className={`font-mono text-[11px] font-medium ${
+                                cust.isLifetime ? 'text-emerald-400 font-bold' : 'text-slate-300'
+                              }`}>
+                                {cust.isLifetime ? 'Perpetual Lifetime' : (cust.expiryDate || 'N/A')}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3 max-w-xs">
+                              {editingNotesId === cust.id ? (
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={editingNotesText}
+                                    onChange={(e) => setEditingNotesText(e.target.value)}
+                                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 w-full outline-none focus:border-amber-500"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveNotes(cust.id)}
+                                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingNotesId(null)}
+                                    className="text-slate-400 hover:text-slate-200 text-[10px] cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div
+                                  onClick={() => {
+                                    setEditingNotesId(cust.id);
+                                    setEditingNotesText(cust.notes || '');
+                                  }}
+                                  className="cursor-pointer text-slate-400 hover:text-slate-200 truncate py-1 px-1.5 rounded hover:bg-slate-800/50 transition-colors"
+                                  title="Click to edit notes"
                                 >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingNotesId(null)}
-                                  className="text-slate-400 hover:text-slate-200 text-[10px] cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <div
-                                onClick={() => {
-                                  setEditingNotesId(cust.id);
-                                  setEditingNotesText(cust.notes || '');
-                                }}
-                                className="cursor-pointer text-slate-400 hover:text-slate-200 truncate py-1 px-1.5 rounded hover:bg-slate-800/50 transition-colors"
-                                title="Click to edit notes"
-                              >
-                                {cust.notes || <span className="italic text-slate-600">Click to add plan notes...</span>}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {cust.licenseKey && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyLicenseKey(cust.licenseKey)}
-                                  className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-200 transition cursor-pointer"
-                                  title="Copy license key"
-                                >
-                                  <Copy className="w-3.5 h-3.5" />
-                                </button>
+                                  {cust.notes || <span className="italic text-slate-600">Click to add plan notes...</span>}
+                                </div>
                               )}
-                              <button
-                                type="button"
-                                onClick={() => handleRevokeCustomerLicense(cust)}
-                                className="p-1.5 hover:bg-rose-950/60 rounded-xl text-slate-400 hover:text-rose-300 transition cursor-pointer"
-                                title="Revoke this license"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenFeatureModal(cust)}
+                                  className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                                  title="Manage features & subscription manually"
+                                >
+                                  <Sliders className="w-3 h-3" />
+                                  <span>Features</span>
+                                </button>
+                                {cust.licenseKey && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyLicenseKey(cust.licenseKey)}
+                                    className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                                    title="Copy license key"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeCustomerLicense(cust)}
+                                  className="p-1.5 hover:bg-rose-950/60 rounded-xl text-slate-400 hover:text-rose-300 transition cursor-pointer"
+                                  title="Revoke this license"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1691,6 +2053,331 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
           </div>
         )}
       </main>
+
+      {/* MODAL 1: MANAGE FEATURES & SUBSCRIPTION FOR SPECIFIC CUSTOMER / USER */}
+      {featureModalCustomer && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-amber-500/30 rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl relative my-8">
+            <button
+              type="button"
+              onClick={() => setFeatureModalCustomer(null)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-200 p-2 rounded-xl hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Sliders className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-100 font-display">
+                  Manage Features & Subscription
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {featureModalCustomer.customerName} ({featureModalCustomer.id})
+                </p>
+              </div>
+            </div>
+
+            {modalNotice && (
+              <div className={`mb-4 p-3 rounded-2xl text-xs flex items-center gap-2 ${
+                modalNotice.type === 'error'
+                  ? 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
+                  : 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
+              }`}>
+                {modalNotice.type === 'error' ? <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" /> : <Check className="w-4 h-4 shrink-0 text-emerald-400" />}
+                <span>{modalNotice.text}</span>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {/* Plan Tier Selector */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { id: 'trial', label: 'Trial' },
+                  { id: 'starter', label: 'Starter' },
+                  { id: 'pro', label: 'Pro Suite' },
+                  { id: 'enterprise', label: 'Lifetime' }
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      setModalPlanTier(t.id);
+                      if (t.id === 'enterprise') setModalIsLifetime(true);
+                      else setModalIsLifetime(false);
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      modalPlanTier === t.id
+                        ? 'bg-amber-500 text-slate-950 border-amber-500'
+                        : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Feature Selection Header & Controls */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200">
+                    Granted Features ({modalSelectedFeatures.length}/{FEATURE_MODULES.length})
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setModalSelectedFeatures(FEATURE_MODULES.map(f => f.key))}
+                      className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 font-semibold"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalSelectedFeatures([])}
+                      className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-[10px] text-slate-400 hover:text-rose-300 font-semibold"
+                    >
+                      Deselect
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto no-scrollbar pt-1">
+                  {FEATURE_MODULES.map((mod) => {
+                    const isChecked = modalSelectedFeatures.includes(mod.key);
+                    const ModIcon = mod.icon;
+                    return (
+                      <div
+                        key={mod.key}
+                        onClick={() => handleToggleModalFeature(mod.key)}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                          isChecked
+                            ? 'bg-amber-500/10 border-amber-500/40 text-slate-100'
+                            : 'bg-slate-900/40 border-slate-800/80 text-slate-500 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ModIcon className={`w-3.5 h-3.5 shrink-0 ${isChecked ? 'text-amber-400' : 'text-slate-600'}`} />
+                          <span className="text-[11px] font-semibold truncate">{mod.name}</span>
+                        </div>
+                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                          isChecked ? 'bg-amber-500 border-amber-500' : 'border-slate-700 bg-slate-950'
+                        }`}>
+                          {isChecked && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Generated Result Preview (if re-signed) */}
+              {modalGeneratedKey && (
+                <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/30 space-y-2 animate-scaleIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300">Updated Signed Key</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLicenseKey(modalGeneratedKey.key)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy New Key</span>
+                    </button>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[10px] text-amber-200 break-all select-all max-h-20 overflow-y-auto">
+                    {modalGeneratedKey.key}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isModalSaving}
+                  onClick={handleSaveCustomerFeatures}
+                  className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-amber-500/20 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>{isModalSaving ? 'Saving...' : 'Re-Sign License'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isModalSaving}
+                  onClick={handleApplyFeaturesToWorkspace}
+                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-xs uppercase tracking-wider rounded-xl border border-slate-700 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer"
+                  title="Apply features directly to the local browser / workspace database"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Apply to Local Studio</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: ADD NEW STUDIO USER */}
+      {isAddCustomerOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-amber-500/30 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative my-8">
+            <button
+              type="button"
+              onClick={() => setIsAddCustomerOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-200 p-2 rounded-xl hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-100 font-display">
+                  Add New Studio User / Customer
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Register a customer record with a chosen subscription model and manual features
+                </p>
+              </div>
+            </div>
+
+            {newCustNotice && (
+              <div className="mb-4 p-3 bg-rose-950/60 border border-rose-800/80 rounded-2xl text-rose-300 text-xs">
+                {newCustNotice.text}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCustomerWithFeatures} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Customer / Studio Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  placeholder="e.g. Skyline Media"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2 text-xs text-slate-100 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Plan Tier
+                  </label>
+                  <select
+                    value={newCustTier}
+                    onChange={(e) => {
+                      const t = e.target.value;
+                      setNewCustTier(t);
+                      if (t === 'enterprise') setNewCustLifetime(true);
+                      else setNewCustLifetime(false);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none"
+                  >
+                    <option value="trial">Trial (14 Days)</option>
+                    <option value="starter">Starter Studio</option>
+                    <option value="pro">Pro Suite</option>
+                    <option value="enterprise">Lifetime</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Duration (Days)
+                  </label>
+                  <input
+                    type="number"
+                    disabled={newCustLifetime}
+                    value={newCustLifetime ? '' : newCustDays}
+                    onChange={(e) => setNewCustDays(Number(e.target.value))}
+                    placeholder={newCustLifetime ? 'Lifetime' : '365'}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              {/* Manual Feature Selection in New User Form */}
+              <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200">
+                    Grant Features ({newCustFeatures.length}/{FEATURE_MODULES.length})
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewCustFeatures(FEATURE_MODULES.map(f => f.key))}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300"
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewCustFeatures([])}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-400"
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto no-scrollbar">
+                  {FEATURE_MODULES.map((mod) => {
+                    const isChecked = newCustFeatures.includes(mod.key);
+                    return (
+                      <div
+                        key={mod.key}
+                        onClick={() => {
+                          setNewCustFeatures(prev => 
+                            prev.includes(mod.key) ? prev.filter(k => k !== mod.key) : [...prev, mod.key]
+                          );
+                        }}
+                        className={`p-2 rounded-xl border text-[11px] font-semibold flex items-center justify-between cursor-pointer transition ${
+                          isChecked ? 'bg-amber-500/10 border-amber-500/40 text-slate-100' : 'bg-slate-900/40 border-slate-800 text-slate-500'
+                        }`}
+                      >
+                        <span className="truncate">{mod.name}</span>
+                        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                          isChecked ? 'bg-amber-500 border-amber-500' : 'border-slate-700 bg-slate-950'
+                        }`}>
+                          {isChecked && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Plan Notes / Remarks
+                </label>
+                <textarea
+                  rows={2}
+                  value={newCustNotes}
+                  onChange={(e) => setNewCustNotes(e.target.value)}
+                  placeholder="e.g. Studio contact details, custom features granted, payment method."
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-2.5 text-xs text-slate-100 outline-none resize-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition cursor-pointer shadow-md shadow-amber-500/20"
+              >
+                Create Customer Record
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
