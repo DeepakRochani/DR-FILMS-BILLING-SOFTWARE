@@ -1,5 +1,10 @@
 import { db } from '../db/db';
-import { getSupabase, isCloudSyncActive, getEffectiveCloudUserId } from '../config/supabase';
+import { 
+  getSupabase, 
+  isCloudSyncActive, 
+  getEffectiveCloudUserId,
+  getCurrentAuthUser
+} from '../config/supabase';
 
 // Map Dexie table names to Supabase table names
 export const TABLE_MAP = {
@@ -306,6 +311,25 @@ export async function pushAllToSupabase(targetTables = null) {
           .upsert(chunk, { onConflict: onConflictClause });
 
         if (error) {
+          const currentUser = getCurrentAuthUser();
+          if (effectiveUserId === 'admin' && !currentUser) {
+            let rpcOk = true;
+            for (const item of chunk) {
+              const { error: rpcErr } = await supabase.rpc('save_studio_owner_record', {
+                passcode: '0303',
+                target_table: supaTable,
+                record_data: item
+              });
+              if (rpcErr) {
+                rpcOk = false;
+                break;
+              }
+            }
+            if (rpcOk) {
+              tableSuccessCount += chunk.length;
+              continue;
+            }
+          }
           console.error(`Supabase push error on ${supaTable}:`, error);
           results.errors.push(`${dexieTable}: ${error.message}`);
         } else {
@@ -351,6 +375,53 @@ export async function pullAllFromSupabase() {
 
   try {
     const effectiveUserId = getEffectiveCloudUserId();
+    const currentUser = getCurrentAuthUser();
+
+    // Fast-path for Studio Owner:
+    // If effectiveUserId === 'admin', invoke security-definer RPC get_studio_owner_records('0303')
+    // which bypasses anon RLS restrictions and retrieves all 12 tables in 1 atomic roundtrip.
+    if (effectiveUserId === 'admin') {
+      try {
+        const { data: ownerRecords, error: rpcError } = await supabase.rpc('get_studio_owner_records', {
+          passcode: '0303'
+        });
+
+        if (!rpcError && ownerRecords && typeof ownerRecords === 'object') {
+          for (const [dexieTable, supaTable] of Object.entries(TABLE_MAP)) {
+            if (!db[dexieTable]) continue;
+            const rows = ownerRecords[supaTable] || [];
+            if (!Array.isArray(rows) || rows.length === 0) {
+              results.byTable[dexieTable] = 0;
+              continue;
+            }
+
+            const restoredItems = rows.map(row => formatRowForDexie(dexieTable, row));
+
+            await db.transaction('rw', db[dexieTable], async () => {
+              for (const item of restoredItems) {
+                await db[dexieTable].put(item);
+              }
+            });
+
+            results.byTable[dexieTable] = restoredItems.length;
+            results.totalImported += restoredItems.length;
+          }
+
+          const timestamp = new Date().toISOString();
+          saveSyncMetadata({
+            status: 'synced',
+            lastPull: timestamp,
+            lastError: null
+          });
+
+          return { ok: true, results, timestamp };
+        } else if (rpcError) {
+          console.warn('RPC get_studio_owner_records notice:', rpcError.message);
+        }
+      } catch (rpcEx) {
+        console.warn('RPC execution exception:', rpcEx);
+      }
+    }
 
     for (const [dexieTable, supaTable] of Object.entries(TABLE_MAP)) {
       if (!db[dexieTable]) continue;
@@ -412,7 +483,22 @@ export async function syncRecordToSupabase(dexieTable, item) {
     const supabase = getSupabase();
     if (!supabase) return;
     const effectiveUserId = getEffectiveCloudUserId();
+    const currentUser = getCurrentAuthUser();
     const formatted = formatRecordForSupabase(dexieTable, item, effectiveUserId);
+
+    if (effectiveUserId === 'admin' && !currentUser) {
+      try {
+        const { error: rpcError } = await supabase.rpc('save_studio_owner_record', {
+          passcode: '0303',
+          target_table: supaTable,
+          record_data: formatted
+        });
+        if (!rpcError) return;
+      } catch (e) {
+        console.warn('RPC save_studio_owner_record notice:', e);
+      }
+    }
+
     const onConflictClause = dexieTable === 'settings' ? 'user_id,key' : 'user_id,id';
     await supabase
       .from(supaTable)

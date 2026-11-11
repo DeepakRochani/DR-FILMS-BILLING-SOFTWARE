@@ -36,11 +36,19 @@ function PageSuspenseFallback() {
 import { SubscriptionLockoutScreen } from './components/SubscriptionLockoutScreen';
 import { SafeCloseModal } from './components/SafeCloseModal';
 import { PinLockScreen } from './components/PinLockScreen';
+import { LandingPage } from './components/LandingPage';
+import { StudioCloudModal } from './components/StudioCloudModal';
 import { calculateSubscriptionStatus, preVerifyLicenseKey } from './utils/licenseManager';
 import { isFeatureAllowedByLicense } from './utils/licenseCrypto';
 import { initGoogleSheetsSync, scheduleAutoSync } from './utils/googleSheetsSync';
 import { setupRealtimeSync, syncBidirectional, registerDexieSyncHooks } from './utils/supabaseSync';
-import { isCloudSyncActive, setStudioCloudAuthorized, getSupabase } from './config/supabase';
+import { 
+  isCloudSyncActive, 
+  setStudioCloudAuthorized, 
+  isStudioCloudAuthorized,
+  getCurrentAuthUser,
+  getSupabase 
+} from './config/supabase';
 import { sanitizeVisitorWorkspace } from './utils/workspaceManager';
 
 import { initCrossOriginBridge, isSyncChannelMode, mergeFromCounterpart } from './utils/crossOriginSync';
@@ -74,6 +82,44 @@ export function CustomerApp() {
   const [showSwUpdateBanner, setShowSwUpdateBanner] = useState(false);
   const [showBackupReminder, setShowBackupReminder] = useState(false);
   const [isExportingQuickBackup, setIsExportingQuickBackup] = useState(false);
+
+  // Landing Page & Modal state for new or unauthenticated visitors
+  const [showLandingPage, setShowLandingPage] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('invoiceId') || params.get('tab') || params.get('app') === 'true') {
+        return false;
+      }
+      if (params.get('landing') === 'true') {
+        return true;
+      }
+      if (sessionStorage.getItem('drfilms_guest_mode') === 'true') {
+        return false;
+      }
+      if (getCurrentAuthUser()) {
+        return false;
+      }
+      if (isStudioCloudAuthorized()) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const [isLandingLoginModalOpen, setIsLandingLoginModalOpen] = useState(false);
+
+  // Listen for studio owner authorization event to dismiss landing page
+  useEffect(() => {
+    const handleOwnerAuth = () => {
+      if (isStudioCloudAuthorized() || getCurrentAuthUser()) {
+        setShowLandingPage(false);
+      }
+    };
+    window.addEventListener('drfilms:owner-authorized', handleOwnerAuth);
+    return () => window.removeEventListener('drfilms:owner-authorized', handleOwnerAuth);
+  }, []);
 
   // PWA Service Worker Update Listener
   useEffect(() => {
@@ -317,6 +363,7 @@ export function CustomerApp() {
     const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         if (session?.user) {
+          setShowLandingPage(false);
           try {
             registerDexieSyncHooks(db);
             setupRealtimeSync();
@@ -478,6 +525,27 @@ export function CustomerApp() {
           <span className="text-amber-400 font-display font-extrabold text-xl">DR</span>
         </div>
         <p className="text-slate-400 text-sm font-medium">Initializing DR FILMS Studio Engine...</p>
+      </div>
+    );
+  }
+
+  // Landing Page for unauthenticated visitors & new users
+  if (showLandingPage) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
+        <LandingPage
+          onLogin={() => setIsLandingLoginModalOpen(true)}
+          onEnterApp={() => {
+            try {
+              sessionStorage.setItem('drfilms_guest_mode', 'true');
+            } catch {}
+            setShowLandingPage(false);
+          }}
+        />
+        <StudioCloudModal
+          isOpen={isLandingLoginModalOpen}
+          onClose={() => setIsLandingLoginModalOpen(false)}
+        />
       </div>
     );
   }

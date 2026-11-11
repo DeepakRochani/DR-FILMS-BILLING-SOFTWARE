@@ -35,6 +35,11 @@ export function setStudioCloudAuthorized(authorized) {
   if (typeof localStorage === 'undefined') return;
   if (authorized) {
     localStorage.setItem(STORAGE_KEY_STUDIO_AUTH, 'true');
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('drfilms:owner-authorized'));
+      } catch {}
+    }
   } else {
     localStorage.removeItem(STORAGE_KEY_STUDIO_AUTH);
   }

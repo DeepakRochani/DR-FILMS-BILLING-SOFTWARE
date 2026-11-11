@@ -20,9 +20,6 @@ import {
   isStudioCloudAuthorized, 
   setStudioCloudAuthorized, 
   verifyAndAuthorizeStudioCloud,
-  isCustomSupabaseConfigured,
-  setCustomSupabaseCredentials,
-  getActiveSupabaseUrl,
   isCloudSyncActive,
   getSupabase,
   getCurrentAuthUser,
@@ -64,10 +61,6 @@ export function StudioCloudModal({ isOpen, onClose }) {
 
   // Owner Passcode
   const [passcode, setPasscode] = useState('');
-
-  // Custom Supabase states
-  const [customUrl, setCustomUrl] = useState(localStorage.getItem('drfilms_supabase_url') || '');
-  const [customKey, setCustomKey] = useState(localStorage.getItem('drfilms_supabase_anon_key') || '');
 
   const isOwner = isStudioCloudAuthorized() || (currentUser?.email && ['contact@drfilms.studio', 'deepurochani@gmail.com'].includes(currentUser.email.toLowerCase()));
 
@@ -231,6 +224,9 @@ export function StudioCloudModal({ isOpen, onClose }) {
         await supabase.auth.signOut();
       }
       setStudioCloudAuthorized(false);
+      try {
+        sessionStorage.removeItem('drfilms_guest_mode');
+      } catch {}
       const { resetToFreshWorkspace } = await import('../utils/workspaceManager');
       await resetToFreshWorkspace();
       setCurrentUser(null);
@@ -261,21 +257,6 @@ export function StudioCloudModal({ isOpen, onClose }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSaveCustom = (e) => {
-    e.preventDefault();
-    if (!customUrl.trim() || !customKey.trim()) {
-      setError('Both Supabase URL and Anon Key are required');
-      return;
-    }
-    setCustomSupabaseCredentials(customUrl.trim(), customKey.trim());
-    enableDexieSyncHooks(db);
-    setupRealtimeSync();
-    setSuccess('Custom Supabase credentials saved.');
-    setTimeout(() => {
-      onClose();
-    }, 1200);
   };
 
   return (
@@ -364,7 +345,7 @@ export function StudioCloudModal({ isOpen, onClose }) {
         ) : (
           <>
             {/* Tab Navigation */}
-            <div className="grid grid-cols-4 gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800 my-4 text-xs font-semibold">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800 my-4 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => { setActiveTab('sso'); setError(''); setSuccess(''); }}
@@ -397,17 +378,6 @@ export function StudioCloudModal({ isOpen, onClose }) {
                 }`}
               >
                 Owner PIN
-              </button>
-              <button
-                type="button"
-                onClick={() => { setActiveTab('custom'); setError(''); setSuccess(''); }}
-                className={`py-1.5 rounded-lg transition-all text-center ${
-                  activeTab === 'custom'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Custom
               </button>
             </div>
 
@@ -536,47 +506,6 @@ export function StudioCloudModal({ isOpen, onClose }) {
                   className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2.5 px-4 rounded-xl transition cursor-pointer disabled:opacity-50"
                 >
                   {loading ? 'Verifying & Syncing...' : 'Connect DR FILMS Master Studio'}
-                </button>
-              </form>
-            )}
-
-            {/* Custom Tab */}
-            {activeTab === 'custom' && (
-              <form onSubmit={handleSaveCustom} className="space-y-3 py-1">
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Connect your own independent Supabase project database.
-                </p>
-
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">Supabase URL</label>
-                  <input
-                    type="url"
-                    required
-                    value={customUrl}
-                    onChange={(e) => setCustomUrl(e.target.value)}
-                    placeholder="https://your-project.supabase.co"
-                    className="w-full glass-input px-3 py-2 rounded-xl text-xs font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">Anon Public Key</label>
-                  <input
-                    type="password"
-                    required
-                    value={customKey}
-                    onChange={(e) => setCustomKey(e.target.value)}
-                    placeholder="eyJhbGciOi..."
-                    className="w-full glass-input px-3 py-2 rounded-xl text-xs font-mono"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2.5 px-4 rounded-xl transition cursor-pointer disabled:opacity-50"
-                >
-                  Save Custom Database
                 </button>
               </form>
             )}
