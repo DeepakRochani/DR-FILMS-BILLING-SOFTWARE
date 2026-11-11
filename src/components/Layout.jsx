@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Award,
   Cloud,
+  Database,
   RefreshCw
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -29,6 +30,8 @@ import { db } from '../db/db';
 import { calculateSubscriptionStatus } from '../utils/licenseManager';
 import { isFeatureAllowedByLicense } from '../utils/licenseCrypto';
 import { syncBidirectional } from '../utils/supabaseSync';
+import { isCloudSyncActive } from '../config/supabase';
+import { StudioCloudModal } from './StudioCloudModal';
 
 
 export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseApp, onOpenAdminPortal, children }) {
@@ -36,8 +39,13 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [isStudioCloudModalOpen, setIsStudioCloudModalOpen] = useState(false);
 
   const handleCloudSync = async () => {
+    if (!isCloudSyncActive()) {
+      setIsStudioCloudModalOpen(true);
+      return;
+    }
     setIsCloudSyncing(true);
     try {
       await syncBidirectional();
@@ -304,12 +312,21 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
             </button>
           )}
 
-          <div className="flex items-center justify-between text-xs px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
+          <div 
+            onClick={() => setIsStudioCloudModalOpen(true)}
+            className="flex items-center justify-between text-xs px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors"
+            title={isCloudSyncActive() ? 'Cloud Synced — Click to manage cloud sync' : 'Private Local Mode — Click to configure cloud sync'}
+          >
             <span className="text-slate-400 flex items-center gap-1.5">
-              {isOnline ? (
+              {isCloudSyncActive() ? (
                 <>
-                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Online (Synced)</span>
+                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-400 font-medium">Cloud Synced</span>
+                </>
+              ) : isOnline ? (
+                <>
+                  <Database className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="text-sky-300 font-medium">Private Local</span>
                 </>
               ) : (
                 <>
@@ -472,6 +489,12 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
           })}
         </nav>
       </div>
+
+      {/* Studio Cloud Modal */}
+      <StudioCloudModal
+        isOpen={isStudioCloudModalOpen}
+        onClose={() => setIsStudioCloudModalOpen(false)}
+      />
     </div>
   );
 }

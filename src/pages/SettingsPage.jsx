@@ -43,7 +43,8 @@ import {
   Trash2,
   Bell,
   Calendar,
-  Edit2
+  Edit2,
+  LogOut
 } from 'lucide-react';
 import { db } from '../db/db';
 import { DEFAULT_SETTINGS, DEFAULT_WHATSAPP_TEMPLATE, DEFAULT_WHATSAPP_PAID_TEMPLATE, DEFAULT_REMINDER_SETTINGS } from '../db/seedData';
@@ -52,8 +53,28 @@ import { isSentryEnabled, setSentryEnabled } from '../utils/sentry';
 import { RestoreSheetModal } from '../components/RestoreSheetModal';
 import { testGoogleSheetsConnection, fetchGoogleSheetBackup, triggerManualSync, extractSpreadsheetId, scheduleAutoSync } from '../utils/googleSheetsSync';
 import { normalizeEventTypes } from '../utils/eventTypeUtils';
-import { getSupabase, testSupabaseConnection, SUPABASE_PROJECT_ID, SUPABASE_REGION, DEFAULT_SUPABASE_URL } from '../config/supabase';
-import { pushAllToSupabase, pullAllFromSupabase, getSyncMetadata } from '../utils/supabaseSync';
+import { 
+  getSupabase, 
+  testSupabaseConnection, 
+  SUPABASE_PROJECT_ID, 
+  SUPABASE_REGION, 
+  DEFAULT_SUPABASE_URL,
+  getActiveSupabaseUrl,
+  isStudioCloudAuthorized,
+  setStudioCloudAuthorized,
+  verifyAndAuthorizeStudioCloud,
+  isCloudSyncActive,
+  isCustomSupabaseConfigured,
+  setCustomSupabaseCredentials
+} from '../config/supabase';
+import { 
+  pushAllToSupabase, 
+  pullAllFromSupabase, 
+  getSyncMetadata,
+  syncBidirectional,
+  enableDexieSyncHooks,
+  setupRealtimeSync
+} from '../utils/supabaseSync';
 import { SupabaseAuthModal } from '../components/SupabaseAuthModal';
 import { 
   getSecurityProfile, 
@@ -148,10 +169,25 @@ export function SettingsPage() {
   const [isPullingSupabase, setIsPullingSupabase] = useState(false);
   const [supabaseSyncMessage, setSupabaseSyncMessage] = useState('');
   const [supabaseSyncMeta, setSupabaseSyncMeta] = useState(getSyncMetadata());
+  const [cloudAuthVersion, setCloudAuthVersion] = useState(0);
+  const [ownerPasscodeInput, setOwnerPasscodeInput] = useState('');
+  const [ownerPasscodeError, setOwnerPasscodeError] = useState('');
+  const [ownerPasscodeLoading, setOwnerPasscodeLoading] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState(
+    typeof localStorage !== 'undefined' ? (localStorage.getItem('drfilms_supabase_url') || '') : ''
+  );
+  const [customKeyInput, setCustomKeyInput] = useState(
+    typeof localStorage !== 'undefined' ? (localStorage.getItem('drfilms_supabase_anon_key') || '') : ''
+  );
+  const [showCustomCloudSection, setShowCustomCloudSection] = useState(false);
 
   useEffect(() => {
     try {
       const supabase = getSupabase();
+      if (!supabase) {
+        setSupabaseUser(null);
+        return;
+      }
       supabase.auth.getUser().then(({ data: { user } }) => {
         setSupabaseUser(user);
       });
@@ -162,7 +198,64 @@ export function SettingsPage() {
     } catch {
       // Ignore initial loading
     }
-  }, []);
+  }, [cloudAuthVersion]);
+
+  const handleConnectStudioOwner = async (e) => {
+    e?.preventDefault();
+    setOwnerPasscodeLoading(true);
+    setOwnerPasscodeError('');
+    setSupabaseSyncMessage('');
+    try {
+      const res = await verifyAndAuthorizeStudioCloud(ownerPasscodeInput);
+      if (!res.success) {
+        setOwnerPasscodeError(res.error || 'Incorrect Studio Owner Passcode');
+        setOwnerPasscodeLoading(false);
+        return;
+      }
+      enableDexieSyncHooks(db);
+      setupRealtimeSync();
+      const syncRes = await syncBidirectional();
+      setSupabaseSyncMeta(getSyncMetadata());
+      setCloudAuthVersion(v => v + 1);
+      setOwnerPasscodeInput('');
+      if (syncRes.ok) {
+        setSupabaseSyncMessage(`Studio Cloud connected successfully. Synced ${syncRes.summary?.pulled || 0} record(s).`);
+      } else {
+        setSupabaseSyncMessage('Studio Cloud connected. Multi-device sync is now active.');
+      }
+    } catch (err) {
+      setOwnerPasscodeError(err.message || 'Connection failed');
+    } finally {
+      setOwnerPasscodeLoading(false);
+    }
+  };
+
+  const handleDisconnectStudio = () => {
+    setStudioCloudAuthorized(false);
+    setCloudAuthVersion(v => v + 1);
+    setSupabaseSyncMessage('Disconnected from Studio Cloud. Reverted to Private Local Mode.');
+  };
+
+  const handleSaveCustomSupabase = (e) => {
+    e?.preventDefault();
+    if (!customUrlInput.trim() || !customKeyInput.trim()) {
+      setSupabaseSyncMessage('Both Supabase URL and Anon Key are required');
+      return;
+    }
+    setCustomSupabaseCredentials(customUrlInput.trim(), customKeyInput.trim());
+    enableDexieSyncHooks(db);
+    setupRealtimeSync();
+    setCloudAuthVersion(v => v + 1);
+    setSupabaseSyncMessage('Custom Supabase credentials saved and activated.');
+  };
+
+  const handleClearCustomSupabase = () => {
+    setCustomSupabaseCredentials('', '');
+    setCustomUrlInput('');
+    setCustomKeyInput('');
+    setCloudAuthVersion(v => v + 1);
+    setSupabaseSyncMessage('Custom credentials cleared. Reverted to Private Local Mode.');
+  };
 
   const handleTestSupabase = async () => {
     setIsTestingSupabase(true);
@@ -2803,54 +2896,23 @@ function doGet(e) {
             </h3>
           </div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 border border-amber-500/30 text-amber-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>Project: {SUPABASE_PROJECT_ID}</span>
-            </span>
+            {isStudioCloudAuthorized() ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Studio Cloud Connected (Owner)</span>
+              </span>
+            ) : isCustomSupabaseConfigured() ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 border border-sky-500/30 text-sky-300">
+                <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+                <span>Custom Cloud Connected</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300">
+                <Database className="w-3.5 h-3.5 text-sky-400" />
+                <span>Private Local Mode</span>
+              </span>
+            )}
           </div>
-        </div>
-
-        {/* Project details card */}
-        <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-            <div>
-              <span className="text-slate-400">Endpoint: </span>
-              <span className="font-mono text-slate-200">{DEFAULT_SUPABASE_URL}</span>
-            </div>
-            <div>
-              <span className="text-slate-400">Region: </span>
-              <span className="font-mono text-slate-200">{SUPABASE_REGION} (Asia Pacific)</span>
-            </div>
-          </div>
-          <div className="text-xs text-slate-400 leading-relaxed">
-            12 PostgreSQL tables initialized with Row Level Security (RLS) and Realtime replication active. Invoices, customers, services, custom charges, quotes, projects, and expenses sync seamlessly across multiple devices.
-          </div>
-        </div>
-
-        {/* Account Authentication Status */}
-        <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-amber-400" />
-              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                Cloud Authentication State
-              </h4>
-            </div>
-            <p className="text-xs text-slate-400">
-              {supabaseUser ? (
-                <span>Signed in as <strong className="text-emerald-300 font-mono">{supabaseUser.email}</strong></span>
-              ) : (
-                <span>Anonymous Key Access (Studio Default). Sign in for user-level cloud access.</span>
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsSupabaseAuthOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
-          >
-            <span>{supabaseUser ? 'Manage Account' : 'Sign In / Sign Up'}</span>
-          </button>
         </div>
 
         {/* Status / Message Display */}
@@ -2876,50 +2938,194 @@ function doGet(e) {
           </div>
         )}
 
-        {/* Sync Actions */}
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <button
-            type="button"
-            disabled={isTestingSupabase}
-            onClick={handleTestSupabase}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-          >
-            {isTestingSupabase ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-            ) : (
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            )}
-            <span>{isTestingSupabase ? 'Testing Connection...' : 'Test Connection'}</span>
-          </button>
+        {isCloudSyncActive() ? (
+          <>
+            {/* Project details card */}
+            <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="text-slate-400">Endpoint: </span>
+                  <span className="font-mono text-slate-200">{getActiveSupabaseUrl() || DEFAULT_SUPABASE_URL}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Region: </span>
+                  <span className="font-mono text-slate-200">{SUPABASE_REGION} (Asia Pacific)</span>
+                </div>
+              </div>
+              <div className="text-xs text-slate-400 leading-relaxed">
+                Multi-device synchronization is active. Invoices, customers, services, custom charges, quotes, projects, and expenses sync seamlessly across your authorized devices.
+              </div>
+            </div>
 
-          <button
-            type="button"
-            disabled={isPushingSupabase}
-            onClick={handlePushSupabase}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-          >
-            {isPushingSupabase ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
-            ) : (
-              <CloudUpload className="w-3.5 h-3.5 text-slate-950" />
-            )}
-            <span>{isPushingSupabase ? 'Pushing to Cloud...' : 'Push All to Supabase Cloud'}</span>
-          </button>
+            {/* Sync Actions */}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                type="button"
+                disabled={isTestingSupabase}
+                onClick={handleTestSupabase}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isTestingSupabase ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                <span>{isTestingSupabase ? 'Testing Connection...' : 'Test Connection'}</span>
+              </button>
 
-          <button
-            type="button"
-            disabled={isPullingSupabase}
-            onClick={handlePullSupabase}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/30 hover:bg-slate-800 text-amber-300 font-semibold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-          >
-            {isPullingSupabase ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-            ) : (
-              <CloudDownload className="w-3.5 h-3.5 text-amber-400" />
-            )}
-            <span>{isPullingSupabase ? 'Pulling from Cloud...' : 'Pull / Restore from Cloud'}</span>
-          </button>
-        </div>
+              <button
+                type="button"
+                disabled={isPushingSupabase}
+                onClick={handlePushSupabase}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isPushingSupabase ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
+                ) : (
+                  <CloudUpload className="w-3.5 h-3.5 text-slate-950" />
+                )}
+                <span>{isPushingSupabase ? 'Pushing to Cloud...' : 'Push All to Cloud'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isPullingSupabase}
+                onClick={handlePullSupabase}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/30 hover:bg-slate-800 text-amber-300 font-semibold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isPullingSupabase ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                ) : (
+                  <CloudDownload className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                <span>{isPullingSupabase ? 'Pulling from Cloud...' : 'Pull / Restore from Cloud'}</span>
+              </button>
+
+              {isStudioCloudAuthorized() && (
+                <button
+                  type="button"
+                  onClick={handleDisconnectStudio}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-semibold text-xs transition-all active:scale-95 cursor-pointer ml-auto"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Disconnect Studio Cloud</span>
+                </button>
+              )}
+
+              {isCustomSupabaseConfigured() && (
+                <button
+                  type="button"
+                  onClick={handleClearCustomSupabase}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-semibold text-xs transition-all active:scale-95 cursor-pointer ml-auto"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Disconnect Custom Cloud</span>
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="space-y-4">
+            {/* Private Local Mode Advisory */}
+            <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
+              <div className="flex items-center gap-2 text-sky-300 text-xs font-bold uppercase tracking-wider">
+                <Database className="w-4 h-4 text-sky-400" />
+                <span>Private Local Mode (Independent Billing Software)</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                All your bills, clients, and receipts are stored 100% locally and privately on this device (IndexedDB). Each user operates their own isolated billing software with zero data sharing.
+              </p>
+            </div>
+
+            {/* DR FILMS Studio Owner Connection */}
+            <form onSubmit={handleConnectStudioOwner} className="p-4 rounded-2xl bg-slate-950/70 border border-amber-500/20 space-y-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-amber-400" />
+                <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  DR FILMS Studio Owner Authorization
+                </h4>
+              </div>
+              <p className="text-xs text-slate-400">
+                Are you the Studio Owner? Enter your 4-digit Master PIN (0303) to link this device to the DR FILMS cloud database and sync your bills and clients.
+              </p>
+
+              {ownerPasscodeError && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{ownerPasscodeError}</span>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                <input
+                  type="password"
+                  maxLength={10}
+                  value={ownerPasscodeInput}
+                  onChange={(e) => setOwnerPasscodeInput(e.target.value)}
+                  placeholder="Enter Master PIN (0303)"
+                  className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-xs focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={ownerPasscodeLoading || !ownerPasscodeInput.trim()}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {ownerPasscodeLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
+                  <span>Connect Studio Cloud</span>
+                </button>
+              </div>
+            </form>
+
+            {/* Third-party Custom Supabase Option */}
+            <div className="p-4 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-slate-400" />
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Custom Cloud Database (Optional)
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomCloudSection(!showCustomCloudSection)}
+                  className="text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+                >
+                  {showCustomCloudSection ? 'Hide' : 'Configure Custom Database'}
+                </button>
+              </div>
+
+              {showCustomCloudSection && (
+                <form onSubmit={handleSaveCustomSupabase} className="space-y-3 pt-2">
+                  <p className="text-xs text-slate-400">
+                    Third-party studios can connect their own Supabase project for multi-device sync.
+                  </p>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={customUrlInput}
+                      onChange={(e) => setCustomUrlInput(e.target.value)}
+                      placeholder="https://your-project.supabase.co"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-xs focus:outline-none focus:border-amber-500"
+                    />
+                    <input
+                      type="password"
+                      value={customKeyInput}
+                      onChange={(e) => setCustomKeyInput(e.target.value)}
+                      placeholder="Anon Key (eyJ...)"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-xs focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-colors"
+                  >
+                    Save Custom Credentials
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Metadata Footer */}
         {supabaseSyncMeta?.lastPush && (

@@ -23,6 +23,7 @@ import {
   clearSiteDataAndReset,
   recordUserActivity
 } from '../utils/security';
+import { resetToFreshWorkspace } from '../utils/workspaceManager';
 
 export function PinLockScreen({ securityProfile, onUnlock }) {
   const [enteredPin, setEnteredPin] = useState('');
@@ -334,13 +335,28 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
 
       {/* Footer Advisory & Recovery */}
       <div className="w-full max-w-sm flex flex-col items-center pb-6 text-center space-y-3">
-        <button
-          type="button"
-          onClick={() => setShowForgotModal(true)}
-          className="text-xs text-amber-400/90 hover:text-amber-300 font-semibold underline underline-offset-4 cursor-pointer"
-        >
-          Forgot PIN?
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setShowForgotModal(true)}
+            className="text-xs text-amber-400/90 hover:text-amber-300 font-semibold underline underline-offset-4 cursor-pointer"
+          >
+            Forgot PIN?
+          </button>
+          <span className="text-slate-600">•</span>
+          <button
+            type="button"
+            onClick={async () => {
+              if (window.confirm('Start your own fresh billing workspace? This will remove this PIN lock and give you a clean, independent billing software for your own studio.')) {
+                await resetToFreshWorkspace();
+                onUnlock();
+              }
+            }}
+            className="text-xs text-slate-400 hover:text-slate-200 font-medium underline underline-offset-4 cursor-pointer"
+          >
+            Start Own Workspace
+          </button>
+        </div>
 
         <p className="text-[11px] text-slate-500 leading-relaxed max-w-xs">
           PIN lock hides the app screen. Keep your device locked too.

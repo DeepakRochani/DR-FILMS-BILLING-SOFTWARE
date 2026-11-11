@@ -40,6 +40,8 @@ import { calculateSubscriptionStatus, preVerifyLicenseKey } from './utils/licens
 import { isFeatureAllowedByLicense } from './utils/licenseCrypto';
 import { initGoogleSheetsSync, scheduleAutoSync } from './utils/googleSheetsSync';
 import { setupRealtimeSync, syncBidirectional, registerDexieSyncHooks } from './utils/supabaseSync';
+import { isCloudSyncActive, setStudioCloudAuthorized } from './config/supabase';
+import { sanitizeVisitorWorkspace } from './utils/workspaceManager';
 
 import { initCrossOriginBridge, isSyncChannelMode, mergeFromCounterpart } from './utils/crossOriginSync';
 import { recordUserActivity, shouldLockOnResume } from './utils/security';
@@ -252,6 +254,9 @@ export function CustomerApp() {
 
   useEffect(() => {
     initDatabase().then(async () => {
+      // 1. Sanitize any previously contaminated visitor workspace
+      await sanitizeVisitorWorkspace();
+
       setIsDbReady(true);
       initGoogleSheetsSync();
       initCrossOriginBridge();
@@ -260,12 +265,16 @@ export function CustomerApp() {
       } catch (err) {
         console.warn('Customer snapshot reconciliation notice:', err);
       }
-      try {
-        registerDexieSyncHooks(db);
-        setupRealtimeSync();
-        await syncBidirectional();
-      } catch (err) {
-        console.warn('Supabase sync notice:', err);
+
+      // 2. Only connect to Supabase Cloud if cloud sync is explicitly active on this device
+      if (isCloudSyncActive()) {
+        try {
+          registerDexieSyncHooks(db);
+          setupRealtimeSync();
+          await syncBidirectional();
+        } catch (err) {
+          console.warn('Supabase sync notice:', err);
+        }
       }
     });
   }, []);
@@ -735,6 +744,7 @@ export function CustomerApp() {
         onUnlock={() => {
           setIsLocked(false);
           recordUserActivity();
+          setStudioCloudAuthorized(true);
         }}
       />
     )}

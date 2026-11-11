@@ -1,5 +1,5 @@
 import { db } from '../db/db';
-import { getSupabase } from '../config/supabase';
+import { getSupabase, isCloudSyncActive } from '../config/supabase';
 
 // Map Dexie table names to Supabase table names
 export const TABLE_MAP = {
@@ -249,8 +249,17 @@ export function formatRowForDexie(dexieTable, row) {
  * Push all local tables to Supabase Cloud
  */
 export async function pushAllToSupabase(targetTables = null) {
+  if (!isCloudSyncActive()) {
+    return { ok: true, skipped: true, reason: 'Private local mode (cloud sync inactive)' };
+  }
+
   saveSyncMetadata({ status: 'pushing', lastError: null });
   const supabase = getSupabase();
+  if (!supabase) {
+    saveSyncMetadata({ status: 'idle', lastError: 'Supabase client not initialized' });
+    return { ok: false, error: 'Supabase client not initialized' };
+  }
+
   const results = { totalSynced: 0, byTable: {}, errors: [] };
 
   const tablesToPush = Array.isArray(targetTables) && targetTables.length > 0
@@ -311,8 +320,17 @@ export async function pushAllToSupabase(targetTables = null) {
  * Pull all data from Supabase Cloud into local IndexedDB
  */
 export async function pullAllFromSupabase() {
+  if (!isCloudSyncActive()) {
+    return { ok: true, skipped: true, reason: 'Private local mode (cloud sync inactive)' };
+  }
+
   saveSyncMetadata({ status: 'pulling', lastError: null });
   const supabase = getSupabase();
+  if (!supabase) {
+    saveSyncMetadata({ status: 'idle', lastError: 'Supabase client not initialized' });
+    return { ok: false, error: 'Supabase client not initialized' };
+  }
+
   const results = { totalImported: 0, byTable: {}, errors: [] };
 
   try {
@@ -365,11 +383,14 @@ export async function pullAllFromSupabase() {
  * Sync an individual record immediately to Supabase
  */
 export async function syncRecordToSupabase(dexieTable, item) {
+  if (!isCloudSyncActive()) return;
+
   const supaTable = TABLE_MAP[dexieTable];
   if (!supaTable) return;
 
   try {
     const supabase = getSupabase();
+    if (!supabase) return;
     const formatted = formatRecordForSupabase(dexieTable, item);
     await supabase
       .from(supaTable)
@@ -396,7 +417,7 @@ const dirtyTables = new Set();
  * Debounced background sync trigger with selective table tracking
  */
 export function triggerDebouncedSupabaseSync(delayMs = 3000, tableName = null) {
-  if (isApplyingRemoteChange) return;
+  if (!isCloudSyncActive() || isApplyingRemoteChange) return;
 
   if (tableName) {
     dirtyTables.add(tableName);
@@ -407,7 +428,7 @@ export function triggerDebouncedSupabaseSync(delayMs = 3000, tableName = null) {
   }
 
   syncDebounceTimer = setTimeout(async () => {
-    if (isApplyingRemoteChange) return;
+    if (!isCloudSyncActive() || isApplyingRemoteChange) return;
     try {
       const tablesToPush = dirtyTables.size > 0 ? Array.from(dirtyTables) : null;
       dirtyTables.clear();
@@ -429,7 +450,14 @@ export function setupRealtimeSync(onRemoteChange) {
     activeChannel = null;
   }
 
+  if (!isCloudSyncActive()) {
+    return () => {};
+  }
+
   const supabase = getSupabase();
+  if (!supabase) {
+    return () => {};
+  }
 
   activeChannel = supabase
     .channel('drfilms-multi-device')
@@ -485,8 +513,17 @@ export function setupRealtimeSync(onRemoteChange) {
  * Ensures localhost and live sites have identical data.
  */
 export async function syncBidirectional() {
+  if (!isCloudSyncActive()) {
+    return { ok: true, skipped: true, reason: 'Private local mode (cloud sync inactive)' };
+  }
+
   saveSyncMetadata({ status: 'syncing', lastError: null });
   const supabase = getSupabase();
+  if (!supabase) {
+    saveSyncMetadata({ status: 'idle', lastError: 'Supabase client not initialized' });
+    return { ok: false, error: 'Supabase client not initialized' };
+  }
+
   const summary = { pushed: 0, pulled: 0, errors: [] };
 
   try {
@@ -618,26 +655,32 @@ let hooksRegistered = false;
  */
 export function registerDexieSyncHooks(databaseInstance) {
   if (hooksRegistered || !databaseInstance || typeof window === 'undefined') return;
+  if (!isCloudSyncActive()) return;
 
   const tables = Object.keys(TABLE_MAP);
   for (const tableName of tables) {
     const table = databaseInstance[tableName];
     if (table && typeof table.hook === 'function') {
       table.hook('creating', () => {
-        if (isApplyingRemoteChange) return;
+        if (!isCloudSyncActive() || isApplyingRemoteChange) return;
         triggerDebouncedSupabaseSync(3000, tableName);
       });
       table.hook('updating', () => {
-        if (isApplyingRemoteChange) return;
+        if (!isCloudSyncActive() || isApplyingRemoteChange) return;
         triggerDebouncedSupabaseSync(3000, tableName);
       });
       table.hook('deleting', () => {
-        if (isApplyingRemoteChange) return;
+        if (!isCloudSyncActive() || isApplyingRemoteChange) return;
         triggerDebouncedSupabaseSync(3000, tableName);
       });
     }
   }
 
   hooksRegistered = true;
+}
+
+export function enableDexieSyncHooks(databaseInstance) {
+  hooksRegistered = false;
+  registerDexieSyncHooks(databaseInstance);
 }
 
