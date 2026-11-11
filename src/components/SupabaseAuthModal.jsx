@@ -3,7 +3,7 @@ import { X, Cloud, Mail, Lock, LogIn, UserPlus, LogOut, CheckCircle, AlertCircle
 import { getSupabase } from '../config/supabase';
 
 export function SupabaseAuthModal({ isOpen, onClose }) {
-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'magiclink'
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -98,33 +98,6 @@ export function SupabaseAuthModal({ isOpen, onClose }) {
     }
   };
 
-  const handleMagicLink = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setMessage('');
-
-    try {
-      const supabase = getSupabase();
-      const { error: authError } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: {
-          emailRedirectTo: window.location.origin
-        }
-      });
-
-      if (authError) {
-        setError(authError.message);
-      } else {
-        setMessage('Magic login link sent to your email.');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSignOut = async () => {
     setLoading(true);
     try {
@@ -197,7 +170,7 @@ export function SupabaseAuthModal({ isOpen, onClose }) {
         ) : (
           <>
             {/* Mode Selector */}
-            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800 text-xs">
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800 text-xs">
               <button
                 type="button"
                 onClick={() => { setMode('signin'); setError(''); setMessage(''); }}
@@ -220,21 +193,10 @@ export function SupabaseAuthModal({ isOpen, onClose }) {
               >
                 Sign Up
               </button>
-              <button
-                type="button"
-                onClick={() => { setMode('magiclink'); setError(''); setMessage(''); }}
-                className={`py-1.5 px-2 rounded-lg font-semibold transition-all ${
-                  mode === 'magiclink'
-                    ? 'bg-amber-500 text-slate-950 shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Magic Link
-              </button>
             </div>
 
             {/* Form */}
-            <form onSubmit={mode === 'signin' ? handleSignIn : mode === 'signup' ? handleSignUp : handleMagicLink} className="space-y-4">
+            <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
                   Email Address
@@ -252,24 +214,22 @@ export function SupabaseAuthModal({ isOpen, onClose }) {
                 </div>
               </div>
 
-              {mode !== 'magiclink' && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full glass-input pl-9 pr-3.5 py-2.5 rounded-xl text-sm font-medium"
-                      placeholder="••••••••"
-                    />
-                  </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full glass-input pl-9 pr-3.5 py-2.5 rounded-xl text-sm font-medium"
+                    placeholder="••••••••"
+                  />
                 </div>
-              )}
+              </div>
 
               {error && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
@@ -292,15 +252,12 @@ export function SupabaseAuthModal({ isOpen, onClose }) {
               >
                 {mode === 'signin' && <LogIn className="w-4 h-4" />}
                 {mode === 'signup' && <UserPlus className="w-4 h-4" />}
-                {mode === 'magiclink' && <Sparkles className="w-4 h-4" />}
                 <span>
                   {loading
                     ? 'Processing...'
                     : mode === 'signin'
                     ? 'Sign In'
-                    : mode === 'signup'
-                    ? 'Create Studio Account'
-                    : 'Send Magic Link'}
+                    : 'Create Studio Account'}
                 </span>
               </button>
             </form>

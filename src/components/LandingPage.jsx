@@ -266,3 +266,4 @@ export function LandingPage({ onLogin, onEnterApp }) {
 }
 
 export default LandingPage;
+

@@ -49,13 +49,13 @@ function AppleIcon({ className = 'w-4 h-4' }) {
 
 export function StudioCloudModal({ isOpen, onClose }) {
   const [currentUser, setCurrentUser] = useState(() => getCurrentAuthUser());
-  const [activeTab, setActiveTab] = useState('sso'); // 'sso' | 'email' | 'owner' | 'custom'
+  const [activeTab, setActiveTab] = useState('email'); // 'email' | 'sso' | 'owner'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   // Email form
-  const [emailMode, setEmailMode] = useState('signin'); // 'signin' | 'signup' | 'magic'
+  const [emailMode, setEmailMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -102,10 +102,20 @@ export function StudioCloudModal({ isOpen, onClose }) {
         }
       });
       if (authError) {
-        setError(authError.message);
+        const rawMsg = typeof authError === 'string' ? authError : authError.message || JSON.stringify(authError);
+        if (rawMsg.includes('Unsupported provider') || rawMsg.includes('provider is not enabled')) {
+          setError(`${provider === 'google' ? 'Google' : 'Apple'} Sign-In is not enabled yet in your Supabase project (Authentication > Providers). Please use Email & Password or Studio Owner PIN (0303).`);
+        } else {
+          setError(authError.message || 'OAuth sign-in failed');
+        }
       }
     } catch (err) {
-      setError(err.message || 'OAuth sign-in failed');
+      const rawMsg = err?.message || JSON.stringify(err);
+      if (rawMsg.includes('Unsupported provider') || rawMsg.includes('provider is not enabled')) {
+        setError(`${provider === 'google' ? 'Google' : 'Apple'} Sign-In is not enabled yet in your Supabase project (Authentication > Providers). Please use Email & Password or Studio Owner PIN (0303).`);
+      } else {
+        setError(err.message || 'OAuth sign-in failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -125,19 +135,7 @@ export function StudioCloudModal({ isOpen, onClose }) {
         return;
       }
 
-      if (emailMode === 'magic') {
-        const { error: authError } = await supabase.auth.signInWithOtp({
-          email: email.trim(),
-          options: {
-            emailRedirectTo: window.location.origin
-          }
-        });
-        if (authError) {
-          setError(authError.message);
-        } else {
-          setSuccess('Login magic link sent to your email.');
-        }
-      } else if (emailMode === 'signup') {
+      if (emailMode === 'signup') {
         if (password.length < 6) {
           setError('Password must be at least 6 characters.');
           setLoading(false);
@@ -157,7 +155,7 @@ export function StudioCloudModal({ isOpen, onClose }) {
             await syncBidirectional();
             setTimeout(() => onClose(), 1200);
           } else {
-            setSuccess('Confirmation email sent. Please check your inbox.');
+            setSuccess('Account created! You can now sign in with your email and password.');
           }
         }
       } else {
@@ -348,17 +346,6 @@ export function StudioCloudModal({ isOpen, onClose }) {
             <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/80 rounded-xl border border-slate-800 my-4 text-xs font-semibold">
               <button
                 type="button"
-                onClick={() => { setActiveTab('sso'); setError(''); setSuccess(''); }}
-                className={`py-1.5 rounded-lg transition-all text-center ${
-                  activeTab === 'sso'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Google / Apple
-              </button>
-              <button
-                type="button"
                 onClick={() => { setActiveTab('email'); setError(''); setSuccess(''); }}
                 className={`py-1.5 rounded-lg transition-all text-center ${
                   activeTab === 'email'
@@ -367,6 +354,17 @@ export function StudioCloudModal({ isOpen, onClose }) {
                 }`}
               >
                 Email
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('sso'); setError(''); setSuccess(''); }}
+                className={`py-1.5 rounded-lg transition-all text-center ${
+                  activeTab === 'sso'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Google / Apple
               </button>
               <button
                 type="button"
@@ -380,6 +378,60 @@ export function StudioCloudModal({ isOpen, onClose }) {
                 Owner PIN
               </button>
             </div>
+
+            {/* Email Tab */}
+            {activeTab === 'email' && (
+              <form onSubmit={handleEmailAuth} className="space-y-3 py-1">
+                <div className="flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => { setEmailMode('signin'); setError(''); }}
+                    className={`flex-1 py-1.5 rounded font-medium transition ${emailMode === 'signin' ? 'bg-slate-800 text-amber-300' : 'text-slate-400'}`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEmailMode('signup'); setError(''); }}
+                    className={`flex-1 py-1.5 rounded font-medium transition ${emailMode === 'signup' ? 'bg-slate-800 text-amber-300' : 'text-slate-400'}`}
+                  >
+                    Register
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="studio@example.com"
+                    className="w-full glass-input px-3 py-2 rounded-xl text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full glass-input px-3 py-2 rounded-xl text-xs"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2.5 px-4 rounded-xl transition cursor-pointer disabled:opacity-50"
+                >
+                  {loading ? 'Processing...' : emailMode === 'signin' ? 'Sign In' : 'Create Private Workspace'}
+                </button>
+              </form>
+            )}
 
             {/* SSO Tab (Google & Apple) */}
             {activeTab === 'sso' && (
@@ -412,70 +464,17 @@ export function StudioCloudModal({ isOpen, onClose }) {
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Database Row-Level Security Protected</span>
                 </div>
+
+                <div className="pt-1 text-center">
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('email'); setError(''); }}
+                    className="text-[11px] text-amber-400 hover:text-amber-300 hover:underline transition cursor-pointer"
+                  >
+                    Or use Email & Password instead
+                  </button>
+                </div>
               </div>
-            )}
-
-            {/* Email Tab */}
-            {activeTab === 'email' && (
-              <form onSubmit={handleEmailAuth} className="space-y-3 py-1">
-                <div className="flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => setEmailMode('signin')}
-                    className={`flex-1 py-1 rounded font-medium ${emailMode === 'signin' ? 'bg-slate-800 text-amber-300' : 'text-slate-400'}`}
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEmailMode('signup')}
-                    className={`flex-1 py-1 rounded font-medium ${emailMode === 'signup' ? 'bg-slate-800 text-amber-300' : 'text-slate-400'}`}
-                  >
-                    Register
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEmailMode('magic')}
-                    className={`flex-1 py-1 rounded font-medium ${emailMode === 'magic' ? 'bg-slate-800 text-amber-300' : 'text-slate-400'}`}
-                  >
-                    Magic Link
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">Email</label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="studio@example.com"
-                    className="w-full glass-input px-3 py-2 rounded-xl text-xs"
-                  />
-                </div>
-
-                {emailMode !== 'magic' && (
-                  <div>
-                    <label className="block text-xs text-slate-300 mb-1">Password</label>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full glass-input px-3 py-2 rounded-xl text-xs"
-                    />
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2.5 px-4 rounded-xl transition cursor-pointer disabled:opacity-50"
-                >
-                  {loading ? 'Processing...' : emailMode === 'signin' ? 'Sign In' : emailMode === 'signup' ? 'Create Private Workspace' : 'Send Magic Link'}
-                </button>
-              </form>
             )}
 
             {/* Owner Tab */}
