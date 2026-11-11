@@ -28,7 +28,12 @@ import {
   MessageSquare,
   Database,
   CheckSquare,
-  ExternalLink
+  ExternalLink,
+  QrCode,
+  Calendar,
+  X,
+  ChevronRight,
+  ShieldAlert
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -39,6 +44,7 @@ import {
   generateSignedRevocationList, 
   importPrivateKeyInMemory 
 } from '../utils/adminLicenseGenerator';
+import { generateQrDataUrl } from '../utils/qrGenerator';
 
 export const FEATURE_MODULES = [
   { key: 'enableQuotes', name: 'Estimates & Quotations', category: 'Billing Core', icon: FileSpreadsheet },
@@ -85,6 +91,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
   const [planNotes, setPlanNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedLicenseResult, setGeneratedLicenseResult] = useState(null);
+  const [licenseQrCodeUrl, setLicenseQrCodeUrl] = useState('');
   const [copyStatus, setCopyStatus] = useState(false);
   const [issueNotice, setIssueNotice] = useState(null);
 
@@ -141,7 +148,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     reader.onload = async (event) => {
       try {
         const content = event.target.result;
-        // Verify key by importing to CryptoKey
+        // Verify key by importing to CryptoKey in memory
         const subtleKey = await importPrivateKeyInMemory(content);
         setPrivateKeyInMemory(subtleKey);
         setKeyLoadedName(file.name);
@@ -198,6 +205,8 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
     setIsGenerating(true);
     setIssueNotice(null);
+    setGeneratedLicenseResult(null);
+    setLicenseQrCodeUrl('');
 
     try {
       const limitVal = billLimit !== '' && !isNaN(Number(billLimit)) ? Number(billLimit) : null;
@@ -213,6 +222,16 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
       });
 
       setGeneratedLicenseResult(res);
+
+      // Generate QR Code for easy camera scanning
+      if (res?.key) {
+        try {
+          const qrUrl = await generateQrDataUrl(res.key, { width: 320, margin: 1 });
+          setLicenseQrCodeUrl(qrUrl);
+        } catch {
+          // Non-blocking fallback
+        }
+      }
 
       // Save customer record to directory
       const newCustomerItem = {
@@ -375,6 +394,17 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     const matchesTier = customerTierFilter === 'all' || c.planTier === customerTierFilter;
     return matchesSearch && matchesTier;
   });
+
+  // Customer metrics
+  const customerMetrics = React.useMemo(() => {
+    const list = customerDirectoryRecord || [];
+    const total = list.length;
+    const proCount = list.filter(c => c.planTier === 'pro').length;
+    const entCount = list.filter(c => c.planTier === 'enterprise' || c.isLifetime).length;
+    const starterCount = list.filter(c => c.planTier === 'starter').length;
+    const trialCount = list.filter(c => c.planTier === 'trial').length;
+    return { total, proCount, entCount, starterCount, trialCount };
+  }, [customerDirectoryRecord]);
 
   // Studio Bills State (Tab: 'bills')
   const [billSearch, setBillSearch] = useState('');
@@ -550,51 +580,63 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
   };
 
   const handleCopyBillSummary = (inv) => {
-    const text = `Invoice #${inv.invoiceNumber || inv.id}\nClient: ${inv.resolvedClientName}${inv.resolvedCompany ? ` (${inv.resolvedCompany})` : ''}\nTotal: ₹ ${Number(inv.totalAmount || 0).toLocaleString('en-IN')}\nBalance Due: ₹ ${Number(inv.balanceDue !== undefined ? inv.balanceDue : inv.totalAmount || 0).toLocaleString('en-IN')}\nStatus: ${inv.status || 'unpaid'}`;
+    const text = `Invoice #${inv.invoiceNumber || inv.id}\nClient: ${inv.resolvedClientName}${inv.resolvedCompany ? ` (${inv.resolvedCompany})` : ''}\nTotal: INR ${Number(inv.totalAmount || 0).toLocaleString('en-IN')}\nBalance Due: INR ${Number(inv.balanceDue !== undefined ? inv.balanceDue : inv.totalAmount || 0).toLocaleString('en-IN')}\nStatus: ${inv.status || 'unpaid'}`;
     navigator.clipboard.writeText(text);
     setCopiedBillId(inv.id);
     setTimeout(() => setCopiedBillId(null), 2000);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-30">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5 text-amber-400" />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
+      {/* Top Frosted Command Header */}
+      <header className="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-xl px-4 sm:px-6 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 sticky top-0 z-40 shadow-xl shadow-black/40">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/25 via-amber-500/10 to-transparent border border-amber-500/40 flex items-center justify-center shadow-lg shadow-amber-500/15">
+            <span className="text-amber-400 font-display font-extrabold text-sm tracking-wider">DR</span>
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white tracking-wide">DR FILMS Admin Control Portal</h1>
-            <p className="text-xs text-slate-400">Owner Licensing, Customer Directory & Revocation Center</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-bold text-white tracking-wide font-display">
+                DR FILMS Admin Control Portal
+              </h1>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 uppercase tracking-widest hidden sm:inline-block">
+                Master Deck
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Owner Licensing, Customer Directory & Revocation Center
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
           {/* Key Status Pill */}
-          <div className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-2 ${
+          <div className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 shadow-sm ${
             privateKeyInMemory 
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' 
+              : 'bg-amber-950/30 border-amber-500/30 text-amber-300'
           }`}>
-            {privateKeyInMemory ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-            <span>{privateKeyInMemory ? `Private Key Loaded (${keyLoadedName || 'Session'})` : 'No Private Key Loaded'}</span>
+            <span className={`w-2 h-2 rounded-full ${privateKeyInMemory ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="font-semibold">
+              {privateKeyInMemory ? 'ECDSA Key Active in RAM' : 'No Key in RAM'}
+            </span>
             {privateKeyInMemory && (
               <button
                 type="button"
                 onClick={handleWipeKeyFromMemory}
-                className="ml-1 text-slate-400 hover:text-rose-400 text-[11px] underline"
-                title="Wipe private key from RAM immediately"
+                className="ml-1 text-[10px] uppercase font-bold text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                title="Wipe private key from RAM"
               >
-                Wipe Key
+                Clear
               </button>
             )}
           </div>
 
+          {/* Action Buttons */}
           <button
             type="button"
             onClick={onReturnToBilling}
-            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 transition"
+            className="px-3.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-98 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700/80 transition-all cursor-pointer shadow-sm"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Return to Billing Studio</span>
@@ -603,80 +645,83 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
           <button
             type="button"
             onClick={onAdminLogout}
-            className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition"
-            title="Lock admin session"
+            className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-rose-950/60 active:scale-95 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-800/60 transition-all cursor-pointer shadow-sm"
+            title="Lock Admin Portal Session"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Lock</span>
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      {/* Main Navigation Bar (Reduced to 3 Core Modules) */}
-      <div className="border-b border-slate-800/80 bg-slate-900/40 px-6">
-        <nav className="flex space-x-2">
+      {/* Modern High-End Tab Navigation Bar */}
+      <div className="border-b border-slate-800/70 bg-slate-900/60 backdrop-blur-md px-4 sm:px-6">
+        <nav className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2 max-w-6xl mx-auto">
+          {/* Tab 1: License Issuing */}
           <button
             type="button"
             onClick={() => setActiveTab('issuing')}
-            className={`py-3.5 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition ${
+            className={`px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer shrink-0 ${
               activeTab === 'issuing'
-                ? 'border-amber-400 text-amber-300 bg-amber-400/5'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-md shadow-amber-500/10 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
             <Key className="w-4 h-4" />
             <span>License Issuing</span>
           </button>
 
+          {/* Tab 2: Customer List & Plan Notes */}
           <button
             type="button"
             onClick={() => setActiveTab('customers')}
-            className={`py-3.5 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition ${
+            className={`px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer shrink-0 ${
               activeTab === 'customers'
-                ? 'border-amber-400 text-amber-300 bg-amber-400/5'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-md shadow-amber-500/10 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
             <Users className="w-4 h-4" />
             <span>Customer List & Plan Notes</span>
             {customerDirectoryRecord?.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300">
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300 border border-slate-700">
                 {customerDirectoryRecord.length}
               </span>
             )}
           </button>
 
+          {/* Tab 3: Revocation List Management */}
           <button
             type="button"
             onClick={() => setActiveTab('revocations')}
-            className={`py-3.5 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition ${
+            className={`px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer shrink-0 ${
               activeTab === 'revocations'
-                ? 'border-amber-400 text-amber-300 bg-amber-400/5'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-md shadow-amber-500/10 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
-            <ShieldCheck className="w-4 h-4" />
+            <ShieldAlert className="w-4 h-4" />
             <span>Revocation List Management</span>
             {revocationRecord?.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-rose-950 text-rose-300 border border-rose-800/40">
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-950/60 text-rose-300 border border-rose-800/50">
                 {revocationRecord.length}
               </span>
             )}
           </button>
 
+          {/* Tab 4: Studio Bills & Invoices */}
           <button
             type="button"
             onClick={() => setActiveTab('bills')}
-            className={`py-3.5 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition ${
+            className={`px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer shrink-0 ${
               activeTab === 'bills'
-                ? 'border-amber-400 text-amber-300 bg-amber-400/5'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-md shadow-amber-500/10 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             }`}
           >
             <Receipt className="w-4 h-4" />
             <span>Studio Bills & Invoices</span>
             {combinedAdminInvoices?.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">
                 {combinedAdminInvoices.length}
               </span>
             )}
@@ -685,34 +730,36 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-6">
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         {/* TAB 1: LICENSE ISSUING */}
         {activeTab === 'issuing' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fadeIn">
             {/* Private Key Session Card */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-              <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-2">
                     <Lock className="w-4 h-4 text-amber-400" />
                     <span>In-Memory Private Key (Session Only)</span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    To sign ECDSA P-256 licenses and revocation lists, load your private key into memory. 
-                    The private key is never written to IndexedDB, localStorage, or sessionStorage.
+                  <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                    To sign ECDSA P-256 licenses and cryptographic revocation lists, load your private key into memory. 
+                    The private key is strictly isolated in RAM and is never written to IndexedDB, localStorage, or cookies.
                   </p>
                 </div>
                 {privateKeyInMemory && (
-                  <span className="px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-medium">
-                    Key Active in RAM
+                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Key Active in RAM</span>
                   </span>
                 )}
               </div>
 
               {!privateKeyInMemory ? (
                 <div className="space-y-4">
+                  {/* Mode Selector */}
                   <div className="flex items-center gap-4 text-xs">
-                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-medium">
                       <input
                         type="radio"
                         name="keyInputType"
@@ -722,7 +769,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                       />
                       <span>Select local key file (.json)</span>
                     </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-medium">
                       <input
                         type="radio"
                         name="keyInputType"
@@ -735,27 +782,30 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                   </div>
 
                   {keyInputType === 'file' ? (
-                    <div className="flex items-center gap-3">
+                    <div className="border-2 border-dashed border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 text-center transition-colors bg-slate-950/40">
                       <input
                         type="file"
                         accept=".json,.pem,application/json,text/plain"
                         onChange={handleKeyFileUpload}
-                        className="block w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer"
+                        className="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 cursor-pointer"
                       />
+                      <span className="text-[11px] text-slate-500 mt-2 block">
+                        Choose your license-private-key.json exported from key generation scripts
+                      </span>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <textarea
                         rows={3}
                         value={keyInputText}
                         onChange={(e) => setKeyInputText(e.target.value)}
                         placeholder="Paste JWK JSON ({'kty':'EC', 'crv':'P-256', 'd':'...'}) or PKCS#8 PEM string..."
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-200 focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-xs font-mono text-slate-200 focus:border-amber-500 focus:outline-none placeholder-slate-600"
                       />
                       <button
                         type="button"
                         onClick={handleKeyTextPaste}
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-lg transition"
+                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-xl transition cursor-pointer shadow-md shadow-amber-500/10"
                       >
                         Load Key into Memory
                       </button>
@@ -763,22 +813,27 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                   )}
 
                   {keyError && (
-                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-300 text-xs flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <div className="p-3 bg-rose-950/60 border border-rose-800/80 rounded-2xl text-rose-300 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
                       <span>{keyError}</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="flex items-center justify-between p-3 bg-slate-950/80 border border-emerald-500/20 rounded-lg">
-                  <div className="flex items-center gap-2 text-xs text-slate-300">
-                    <Check className="w-4 h-4 text-emerald-400" />
-                    <span>Loaded source: <strong>{keyLoadedName}</strong></span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-950/80 border border-emerald-500/30 rounded-2xl gap-3">
+                  <div className="flex items-center gap-3 text-xs text-slate-300">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                      <Check className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase tracking-wider font-semibold">Loaded Key Source</span>
+                      <strong className="text-slate-100 font-mono text-xs">{keyLoadedName}</strong>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={handleWipeKeyFromMemory}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-700/50 rounded text-xs transition"
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-800/60 rounded-xl text-xs font-semibold transition cursor-pointer self-start sm:self-auto"
                   >
                     Clear from RAM
                   </button>
@@ -786,17 +841,21 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
               )}
             </div>
 
-            {/* License Generator Form */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-              <h2 className="text-sm font-semibold text-slate-200 mb-4 flex items-center gap-2">
-                <Key className="w-4 h-4 text-amber-400" />
-                <span>Issue Commercial Studio License</span>
-              </h2>
+            {/* License Generator & Output Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Generator Form */}
+              <div className="lg:col-span-7 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl">
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-2">
+                    <Key className="w-4 h-4 text-amber-400" />
+                    <span>Issue Commercial Studio License</span>
+                  </h2>
+                  <span className="text-[11px] text-slate-400">ECDSA P-256</span>
+                </div>
 
-              <form onSubmit={handleGenerateKey} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <form onSubmit={handleGenerateKey} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                       Customer / Studio Name *
                     </label>
                     <input
@@ -805,254 +864,391 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
                       placeholder="e.g. Royal Wedding Cinema"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 outline-none transition"
                     />
                   </div>
 
+                  {/* Plan Tier Selector Cards */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label className="block text-xs font-semibold text-slate-300 mb-2">
                       Subscription Plan Tier
                     </label>
-                    <select
-                      value={planTier}
-                      onChange={(e) => {
-                        const newTier = e.target.value;
-                        setPlanTier(newTier);
-                        if (newTier === 'enterprise') setIsLifetime(true);
-                      }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
-                    >
-                      <option value="trial">Free Trial (14-Day / 25 Invoices)</option>
-                      <option value="starter">Starter Studio (Annual / 500 Invoices)</option>
-                      <option value="pro">Pro Studio Suite (Annual / Unlimited)</option>
-                      <option value="enterprise">Enterprise / Perpetual Lifetime</option>
-                    </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[
+                        { id: 'trial', title: 'Free Trial', desc: '14-Day evaluation', limit: '25 Invoices max' },
+                        { id: 'starter', title: 'Starter Studio', desc: 'Annual core features', limit: '500 Invoices / yr' },
+                        { id: 'pro', title: 'Pro Studio Suite', desc: 'Annual full suite', limit: 'Unlimited Invoices' },
+                        { id: 'enterprise', title: 'Perpetual Lifetime', desc: 'Lifetime unmetered', limit: 'Never expires' }
+                      ].map((t) => {
+                        const isSelected = planTier === t.id;
+                        return (
+                          <div
+                            key={t.id}
+                            onClick={() => {
+                              setPlanTier(t.id);
+                              if (t.id === 'enterprise') {
+                                setIsLifetime(true);
+                              } else {
+                                setIsLifetime(false);
+                              }
+                            }}
+                            className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-amber-500/15 border-amber-500/60 shadow-md shadow-amber-500/10'
+                                : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-xs font-bold ${isSelected ? 'text-amber-300' : 'text-slate-200'}`}>
+                                {t.title}
+                              </span>
+                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                                isSelected ? 'border-amber-400 bg-amber-400' : 'border-slate-700'
+                              }`}>
+                                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-slate-950" />}
+                              </div>
+                            </div>
+                            <span className="text-[11px] text-slate-400 block">{t.desc}</span>
+                            <span className="text-[10px] text-amber-400/80 font-mono mt-1 block">{t.limit}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Duration (Days)
-                    </label>
-                    <div className="flex items-center gap-2">
+                  {/* Duration and Bill Limits */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-semibold text-slate-300">Duration (Days)</label>
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isLifetime}
+                            onChange={(e) => setIsLifetime(e.target.checked)}
+                            className="text-amber-500 focus:ring-amber-500 rounded"
+                          />
+                          <span>Lifetime</span>
+                        </label>
+                      </div>
                       <input
                         type="number"
                         disabled={isLifetime}
-                        value={durationDays}
+                        value={isLifetime ? '' : durationDays}
                         onChange={(e) => setDurationDays(Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-amber-500 focus:outline-none disabled:opacity-50"
+                        placeholder={isLifetime ? 'Perpetual' : '365'}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 outline-none disabled:opacity-50"
                       />
-                      <label className="flex items-center gap-1.5 text-xs text-slate-300 shrink-0 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isLifetime}
-                          onChange={(e) => setIsLifetime(e.target.checked)}
-                          className="text-amber-500 focus:ring-amber-500"
-                        />
-                        <span>Perpetual Lifetime</span>
+                      {/* Quick duration presets */}
+                      <div className="flex items-center gap-1.5 mt-2">
+                        {[
+                          { label: '14d', days: 14 },
+                          { label: '30d', days: 30 },
+                          { label: '1 Year', days: 365 },
+                          { label: '2 Years', days: 730 }
+                        ].map((d) => (
+                          <button
+                            key={d.label}
+                            type="button"
+                            disabled={isLifetime}
+                            onClick={() => setDurationDays(d.days)}
+                            className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 font-medium transition disabled:opacity-40"
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                        Invoice Limit (Optional)
                       </label>
+                      <input
+                        type="number"
+                        value={billLimit}
+                        onChange={(e) => setBillLimit(e.target.value)}
+                        placeholder={planTier === 'trial' ? '25' : 'Unlimited (leave blank)'}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 outline-none"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        Leave blank for unmetered bills creation
+                      </span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Bill / Invoice Limit (optional)
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Plan Notes / Transaction Reference (Internal)
                     </label>
-                    <input
-                      type="number"
-                      value={billLimit}
-                      onChange={(e) => setBillLimit(e.target.value)}
-                      placeholder={planTier === 'trial' ? '25' : 'Unlimited (leave blank)'}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
+                    <textarea
+                      rows={2}
+                      value={planNotes}
+                      onChange={(e) => setPlanNotes(e.target.value)}
+                      placeholder="e.g. Paid via NEFT Ref #1928491, 1-Year subscription for Main Branch. Contact: Rahul Sharma."
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-3 text-xs text-slate-200 outline-none resize-none placeholder-slate-600"
                     />
                   </div>
-                </div>
 
+                  {issueNotice && (
+                    <div className={`p-3 rounded-2xl text-xs flex items-center gap-2 ${
+                      issueNotice.type === 'error'
+                        ? 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
+                        : 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
+                    }`}>
+                      {issueNotice.type === 'error' ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Check className="w-4 h-4 shrink-0" />}
+                      <span>{issueNotice.text}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={isGenerating || !privateKeyInMemory}
+                    className="w-full py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 text-xs font-extrabold uppercase tracking-widest rounded-2xl shadow-lg shadow-amber-500/20 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Key className="w-4 h-4" />
+                    <span>{isGenerating ? 'Signing License Key...' : 'Generate Signed License Key'}</span>
+                  </button>
+                </form>
+              </div>
+
+              {/* Right Column: Live License Certificate & Instant QR Preview */}
+              <div className="lg:col-span-5 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl flex flex-col justify-between">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Plan Notes / Payment Details (Internal)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={planNotes}
-                    onChange={(e) => setPlanNotes(e.target.value)}
-                    placeholder="e.g. Paid via NEFT Ref #1928491, 1-Year subscription for Main Branch. Contact: Rahul Sharma."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
-                  />
-                </div>
-
-                {issueNotice && (
-                  <div className={`p-3 rounded-lg text-xs flex items-center gap-2 ${
-                    issueNotice.type === 'error'
-                      ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
-                      : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
-                  }`}>
-                    {issueNotice.type === 'error' ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Check className="w-4 h-4 shrink-0" />}
-                    <span>{issueNotice.text}</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isGenerating || !privateKeyInMemory}
-                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-bold rounded-lg transition flex items-center gap-2"
-                >
-                  <Key className="w-4 h-4" />
-                  <span>{isGenerating ? 'Generating Signed Key...' : 'Generate Signed License Key'}</span>
-                </button>
-              </form>
-            </div>
-
-            {/* Generated License Result Card */}
-            {generatedLicenseResult && (
-              <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
-                    <Check className="w-4 h-4 text-emerald-400" />
-                    <span>Cryptographically Signed License Key</span>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-2 mb-4">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span>Generated License & Activation QR</span>
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCopyLicenseKey(generatedLicenseResult.key)}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-semibold flex items-center gap-1.5 transition"
-                    >
-                      {copyStatus ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copyStatus ? 'Copied' : 'Copy Key'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadLicenseFile(generatedLicenseResult)}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-semibold flex items-center gap-1.5 transition"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download File</span>
-                    </button>
-                  </div>
-                </div>
 
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg break-all font-mono text-xs text-amber-200 select-all">
-                  {generatedLicenseResult.key}
-                </div>
+                  {generatedLicenseResult ? (
+                    <div className="space-y-4 animate-scaleIn">
+                      {/* Monospace Key Card */}
+                      <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Signed Key Ready</span>
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyLicenseKey(generatedLicenseResult.key)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                            >
+                              {copyStatus ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{copyStatus ? 'Copied' : 'Copy'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadLicenseFile(generatedLicenseResult)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Save .json</span>
+                            </button>
+                          </div>
+                        </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
-                  <div>
-                    <span className="text-slate-400 block">License ID:</span>
-                    <span className="text-slate-200 font-mono font-medium">{generatedLicenseResult.payload.licenseId}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Customer:</span>
-                    <span className="text-slate-200 font-medium">{generatedLicenseResult.payload.customerName}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Plan Tier:</span>
-                    <span className="text-amber-400 font-semibold uppercase">{generatedLicenseResult.payload.planTier}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Expires:</span>
-                    <span className="text-slate-200">{generatedLicenseResult.payload.isLifetime ? 'Never (Lifetime)' : generatedLicenseResult.payload.expiryDate}</span>
-                  </div>
+                        <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl break-all font-mono text-[11px] text-amber-200 select-all max-h-28 overflow-y-auto">
+                          {generatedLicenseResult.key}
+                        </div>
+                      </div>
+
+                      {/* Activation QR Code */}
+                      {licenseQrCodeUrl && (
+                        <div className="p-4 bg-slate-950/80 border border-slate-800/80 rounded-2xl flex flex-col items-center justify-center text-center">
+                          <div className="p-2.5 bg-white rounded-xl shadow-lg mb-2">
+                            <img
+                              src={licenseQrCodeUrl}
+                              alt="License Activation QR"
+                              className="w-36 h-36 object-contain"
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-slate-200">Instant Activation QR</span>
+                          <span className="text-[10px] text-slate-400 mt-0.5">
+                            Customer studio can scan this QR code to activate their billing software
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Summary Metadata Grid */}
+                      <div className="grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80">
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">License ID</span>
+                          <span className="text-slate-200 font-mono font-medium truncate block">
+                            {generatedLicenseResult.payload.licenseId}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Studio Name</span>
+                          <span className="text-slate-200 font-medium truncate block">
+                            {generatedLicenseResult.payload.customerName}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Plan Tier</span>
+                          <span className="text-amber-400 font-bold uppercase">
+                            {generatedLicenseResult.payload.planTier}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Expiration</span>
+                          <span className="text-slate-200">
+                            {generatedLicenseResult.payload.isLifetime ? 'Lifetime' : generatedLicenseResult.payload.expiryDate}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-slate-800 rounded-2xl p-8 text-center flex flex-col items-center justify-center min-h-[320px] bg-slate-950/20">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-800/60 flex items-center justify-center text-slate-500 mb-3">
+                        <QrCode className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-semibold text-slate-300 block">No License Generated Yet</span>
+                      <p className="text-[11px] text-slate-500 max-w-xs mt-1 leading-relaxed">
+                        Fill in customer details on the left and click "Generate Signed License Key" to create a signed certificate and QR code.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+            </div>
           </div>
         )}
 
         {/* TAB 2: CUSTOMER LIST WITH PLAN NOTES */}
         {activeTab === 'customers' && (
-          <div className="space-y-6">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <div className="space-y-6 animate-fadeIn">
+            {/* Customer Directory Metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
+                <span className="text-slate-400 text-[11px] block uppercase font-bold tracking-wider">Total Studios</span>
+                <span className="text-2xl font-bold font-mono text-slate-100 mt-1 block">{customerMetrics.total}</span>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
+                <span className="text-amber-400/90 text-[11px] block uppercase font-bold tracking-wider">Pro Suite</span>
+                <span className="text-2xl font-bold font-mono text-amber-300 mt-1 block">{customerMetrics.proCount}</span>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
+                <span className="text-emerald-400/90 text-[11px] block uppercase font-bold tracking-wider">Enterprise / Lifetime</span>
+                <span className="text-2xl font-bold font-mono text-emerald-400 mt-1 block">{customerMetrics.entCount}</span>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
+                <span className="text-sky-400/90 text-[11px] block uppercase font-bold tracking-wider">Starter & Trial</span>
+                <span className="text-2xl font-bold font-mono text-sky-300 mt-1 block">{customerMetrics.starterCount + customerMetrics.trialCount}</span>
+              </div>
+            </div>
+
+            {/* Customer Directory Table & Cards */}
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl space-y-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
                     <Users className="w-4 h-4 text-amber-400" />
-                    <span>Customer License Directory & Plan Notes</span>
+                    <span>Customer List & Plan Notes</span>
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Manage studio customers, record subscription notes, and view expiration status.
+                    Manage studio customers, record subscription payment notes, and inspect license statuses.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 flex-wrap">
                   <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Search customers or notes..."
-                      className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none w-48 md:w-64"
+                      placeholder="Search studios or notes..."
+                      className="bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-200 outline-none w-48 sm:w-60 transition"
                     />
                   </div>
 
                   <select
                     value={customerTierFilter}
                     onChange={(e) => setCustomerTierFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
+                    className="bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none transition cursor-pointer"
                   >
-                    <option value="all">All Tiers</option>
-                    <option value="pro">Pro Suite</option>
-                    <option value="enterprise">Enterprise</option>
-                    <option value="starter">Starter</option>
-                    <option value="trial">Trial</option>
+                    <option value="all">All Tiers ({customerMetrics.total})</option>
+                    <option value="pro">Pro Suite ({customerMetrics.proCount})</option>
+                    <option value="enterprise">Enterprise ({customerMetrics.entCount})</option>
+                    <option value="starter">Starter ({customerMetrics.starterCount})</option>
+                    <option value="trial">Trial ({customerMetrics.trialCount})</option>
                   </select>
                 </div>
               </div>
 
               {filteredCustomers.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-lg">
-                  No customer licenses found. Issue a new license from the "License Issuing" tab.
+                <div className="p-10 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
+                  {customerSearch ? 'No studio customers match your search.' : 'No customer licenses issued yet. Generate your first license from the "License Issuing" tab.'}
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-semibold">
-                        <th className="py-2.5 px-3">Studio / Customer</th>
-                        <th className="py-2.5 px-3">Plan Tier</th>
-                        <th className="py-2.5 px-3">Issued</th>
-                        <th className="py-2.5 px-3">Expiry</th>
-                        <th className="py-2.5 px-3">Plan Notes</th>
-                        <th className="py-2.5 px-3 text-right">Actions</th>
+                      <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4">Studio / Customer</th>
+                        <th className="py-3 px-3">Plan Tier</th>
+                        <th className="py-3 px-3">Issued Date</th>
+                        <th className="py-3 px-3">Expiry</th>
+                        <th className="py-3 px-3">Plan Notes (Click to Edit)</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60">
+                    <tbody className="divide-y divide-slate-800/60 bg-slate-900/30">
                       {filteredCustomers.map((cust) => (
-                        <tr key={cust.id} className="hover:bg-slate-800/20">
-                          <td className="py-3 px-3">
-                            <span className="font-semibold text-slate-200 block">{cust.customerName}</span>
-                            <span className="font-mono text-[10px] text-slate-500">{cust.id}</span>
+                        <tr key={cust.id} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-bold text-amber-300 text-xs shrink-0">
+                                {cust.customerName?.slice(0, 2).toUpperCase() || 'ST'}
+                              </div>
+                              <div>
+                                <span className="font-bold text-slate-100 block">{cust.customerName}</span>
+                                <span className="font-mono text-[10px] text-slate-500">{cust.id}</span>
+                              </div>
+                            </div>
                           </td>
-                          <td className="py-3 px-3">
-                            <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 uppercase">
+                          <td className="py-3.5 px-3">
+                            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold uppercase tracking-wider border ${
+                              cust.planTier === 'enterprise'
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                : cust.planTier === 'pro'
+                                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                            }`}>
                               {cust.planTier}
                             </span>
                           </td>
-                          <td className="py-3 px-3 text-slate-400">{cust.issueDate || 'N/A'}</td>
-                          <td className="py-3 px-3 text-slate-300">
-                            {cust.isLifetime ? 'Lifetime' : (cust.expiryDate || 'N/A')}
+                          <td className="py-3.5 px-3 text-slate-400 font-mono text-[11px]">{cust.issueDate || 'N/A'}</td>
+                          <td className="py-3.5 px-3">
+                            <span className={`font-mono text-[11px] font-medium ${
+                              cust.isLifetime ? 'text-emerald-400 font-bold' : 'text-slate-300'
+                            }`}>
+                              {cust.isLifetime ? 'Perpetual Lifetime' : (cust.expiryDate || 'N/A')}
+                            </span>
                           </td>
-                          <td className="py-3 px-3 max-w-xs">
+                          <td className="py-3.5 px-3 max-w-xs">
                             {editingNotesId === cust.id ? (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
                                   value={editingNotesText}
                                   onChange={(e) => setEditingNotesText(e.target.value)}
-                                  className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 w-full"
+                                  className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 w-full outline-none focus:border-amber-500"
+                                  autoFocus
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleSaveNotes(cust.id)}
-                                  className="px-2 py-1 bg-amber-500 text-slate-950 rounded text-[11px] font-bold"
+                                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-[10px] font-bold transition cursor-pointer"
                                 >
                                   Save
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setEditingNotesId(null)}
-                                  className="text-slate-400 hover:text-slate-200 text-[11px]"
+                                  className="text-slate-400 hover:text-slate-200 text-[10px] cursor-pointer"
                                 >
                                   Cancel
                                 </button>
@@ -1063,20 +1259,20 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                                   setEditingNotesId(cust.id);
                                   setEditingNotesText(cust.notes || '');
                                 }}
-                                className="cursor-pointer text-slate-400 hover:text-slate-200 truncate"
+                                className="cursor-pointer text-slate-400 hover:text-slate-200 truncate py-1 px-1.5 rounded hover:bg-slate-800/50 transition-colors"
                                 title="Click to edit notes"
                               >
                                 {cust.notes || <span className="italic text-slate-600">Click to add plan notes...</span>}
                               </div>
                             )}
                           </td>
-                          <td className="py-3 px-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
                               {cust.licenseKey && (
                                 <button
                                   type="button"
                                   onClick={() => handleCopyLicenseKey(cust.licenseKey)}
-                                  className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200"
+                                  className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-200 transition cursor-pointer"
                                   title="Copy license key"
                                 >
                                   <Copy className="w-3.5 h-3.5" />
@@ -1085,7 +1281,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                               <button
                                 type="button"
                                 onClick={() => handleRevokeCustomerLicense(cust)}
-                                className="p-1.5 hover:bg-rose-950 rounded text-slate-400 hover:text-rose-300"
+                                className="p-1.5 hover:bg-rose-950/60 rounded-xl text-slate-400 hover:text-rose-300 transition cursor-pointer"
                                 title="Revoke this license"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1104,16 +1300,17 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
         {/* TAB 3: REVOCATION LIST MANAGEMENT */}
         {activeTab === 'revocations' && (
-          <div className="space-y-6">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 space-y-6">
+          <div className="space-y-6 animate-fadeIn">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-amber-400" />
+                  <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-400" />
                     <span>Cryptographic Revocation List Management</span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Manage revoked licenses and generate a signed <code>revoked.json</code> to deploy online.
+                  <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
+                    Manage revoked licenses and generate a signed <code>revoked.json</code> document to deploy online. 
+                    Client installations verify this cryptographic list on startup.
                   </p>
                 </div>
 
@@ -1121,18 +1318,18 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                   type="button"
                   disabled={isSigningRevocations || !privateKeyInMemory}
                   onClick={handleSignRevocationList}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-bold rounded-lg transition flex items-center gap-2"
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 disabled:opacity-50 text-slate-950 text-xs font-bold rounded-xl shadow-md shadow-amber-500/15 transition flex items-center gap-2 cursor-pointer shrink-0"
                 >
                   <Key className="w-3.5 h-3.5" />
-                  <span>{isSigningRevocations ? 'Signing...' : 'Sign & Export revoked.json'}</span>
+                  <span>{isSigningRevocations ? 'Signing Revocation List...' : 'Sign & Export revoked.json'}</span>
                 </button>
               </div>
 
               {/* Add Revocation Form */}
-              <form onSubmit={handleAddRevocation} className="p-4 bg-slate-950/80 border border-slate-800 rounded-lg flex flex-col md:flex-row gap-3 items-end">
+              <form onSubmit={handleAddRevocation} className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl flex flex-col md:flex-row gap-3 items-end">
                 <div className="flex-1 w-full">
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    License ID to Revoke
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    License ID to Revoke *
                   </label>
                   <input
                     type="text"
@@ -1140,12 +1337,12 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                     value={newRevokeId}
                     onChange={(e) => setNewRevokeId(e.target.value)}
                     placeholder="e.g. lic_20261023_abc1"
-                    className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2 text-xs text-slate-200 font-mono outline-none"
                   />
                 </div>
 
                 <div className="flex-1 w-full">
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                     Reason
                   </label>
                   <input
@@ -1153,58 +1350,60 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                     value={newRevokeReason}
                     onChange={(e) => setNewRevokeReason(e.target.value)}
                     placeholder="e.g. Chargeback refund, contract terminated"
-                    className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-200 focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2 text-xs text-slate-200 outline-none"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded transition shrink-0"
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition shrink-0 cursor-pointer border border-slate-700"
                 >
                   Add to Queue
                 </button>
               </form>
 
               {revocationNotice && (
-                <div className={`p-3 rounded-lg text-xs flex items-center gap-2 ${
+                <div className={`p-3 rounded-2xl text-xs flex items-center gap-2 ${
                   revocationNotice.type === 'error'
-                    ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
-                    : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                    ? 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
+                    : 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
                 }`}>
-                  {revocationNotice.type === 'error' ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <Check className="w-4 h-4 shrink-0" />}
+                  {revocationNotice.type === 'error' ? <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" /> : <Check className="w-4 h-4 shrink-0 text-emerald-400" />}
                   <span>{revocationNotice.text}</span>
                 </div>
               )}
 
               {/* Table of Revoked Items */}
               <div>
-                <h3 className="text-xs font-semibold text-slate-400 mb-2">Revocation Queue ({revocationRecord?.length || 0})</h3>
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5">
+                  Revocation Queue ({revocationRecord?.length || 0})
+                </h3>
                 {revocationRecord?.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic p-4 border border-dashed border-slate-800 rounded">
-                    No revoked licenses in the list.
+                  <p className="text-xs text-slate-500 italic p-6 border border-dashed border-slate-800 rounded-2xl text-center bg-slate-950/30">
+                    No revoked licenses in the list. All issued keys remain active.
                   </p>
                 ) : (
-                  <div className="border border-slate-800 rounded-lg overflow-hidden">
+                  <div className="border border-slate-800 rounded-2xl overflow-hidden">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-950 border-b border-slate-800 text-slate-400">
+                      <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                         <tr>
-                          <th className="py-2 px-3">License ID</th>
-                          <th className="py-2 px-3">Reason</th>
-                          <th className="py-2 px-3">Revoked Date</th>
-                          <th className="py-2 px-3 text-right">Remove</th>
+                          <th className="py-2.5 px-3.5">License ID</th>
+                          <th className="py-2.5 px-3">Reason</th>
+                          <th className="py-2.5 px-3">Revoked Date</th>
+                          <th className="py-2.5 px-3.5 text-right">Remove</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800/60">
+                      <tbody className="divide-y divide-slate-800/60 bg-slate-900/30">
                         {revocationRecord.map((item) => (
                           <tr key={item.licenseId} className="hover:bg-slate-800/20">
-                            <td className="py-2 px-3 font-mono font-medium text-rose-300">{item.licenseId}</td>
-                            <td className="py-2 px-3 text-slate-300">{item.reason}</td>
-                            <td className="py-2 px-3 text-slate-400">{item.revokedAt ? new Date(item.revokedAt).toLocaleDateString() : 'N/A'}</td>
-                            <td className="py-2 px-3 text-right">
+                            <td className="py-2.5 px-3.5 font-mono font-medium text-rose-300">{item.licenseId}</td>
+                            <td className="py-2.5 px-3 text-slate-300">{item.reason}</td>
+                            <td className="py-2.5 px-3 text-slate-400">{item.revokedAt ? new Date(item.revokedAt).toLocaleDateString() : 'N/A'}</td>
+                            <td className="py-2.5 px-3.5 text-right">
                               <button
                                 type="button"
                                 onClick={() => handleRemoveRevocation(item.licenseId)}
-                                className="p-1 text-slate-400 hover:text-rose-400"
+                                className="p-1 text-slate-400 hover:text-rose-400 transition cursor-pointer"
                                 title="Remove from list"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1220,22 +1419,22 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
               {/* Signed Revoked.json output */}
               {signedRevocationJson && (
-                <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4 space-y-3">
+                <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-5 space-y-3 animate-scaleIn">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                      <Check className="w-4 h-4" />
+                      <Check className="w-4 h-4 text-emerald-400" />
                       <span>Signed revoked.json Ready</span>
                     </span>
                     <button
                       type="button"
                       onClick={handleDownloadRevocationJson}
-                      className="px-3 py-1 bg-emerald-500 text-slate-950 font-bold rounded text-xs flex items-center gap-1.5"
+                      className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow transition cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Download revoked.json</span>
                     </button>
                   </div>
-                  <pre className="p-3 bg-slate-950 border border-slate-800 rounded font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto">
+                  <pre className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto">
                     {JSON.stringify(signedRevocationJson, null, 2)}
                   </pre>
                 </div>
@@ -1246,27 +1445,27 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
         {/* TAB 4: STUDIO BILLS & INVOICES */}
         {activeTab === 'bills' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fadeIn">
             {/* Header / Intro Card */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
                     <Receipt className="w-4 h-4 text-amber-400" />
                     <span>Studio Owner Bills & Generated Invoices</span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
                     All generated invoices owned by DR FILMS Studio Admin with Row-Level Security isolation.
                     Other tenant users cannot view these bills.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <button
                     type="button"
                     disabled={isLoadingRemoteInvoices}
                     onClick={fetchRemoteInvoices}
-                    className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 border border-slate-700 transition cursor-pointer shadow-sm"
                     title="Reload all bills directly from Supabase Cloud"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isLoadingRemoteInvoices ? 'animate-spin' : ''}`} />
@@ -1274,7 +1473,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                   </button>
                   <a
                     href="/?tab=invoices"
-                    className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition"
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-amber-500/10 cursor-pointer"
                     title="Open full interactive invoice manager in Billing Studio"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -1284,12 +1483,12 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
               </div>
 
               {remoteFetchNotice && (
-                <div className={`mt-3 p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                <div className={`mt-3 p-3 rounded-2xl text-xs flex items-center gap-2 ${
                   remoteFetchNotice.type === 'error'
-                    ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
-                    : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                    ? 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
+                    : 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
                 }`}>
-                  {remoteFetchNotice.type === 'error' ? <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> : <Check className="w-3.5 h-3.5 shrink-0" />}
+                  {remoteFetchNotice.type === 'error' ? <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" /> : <Check className="w-3.5 h-3.5 shrink-0 text-emerald-400" />}
                   <span>{remoteFetchNotice.text}</span>
                 </div>
               )}
@@ -1297,51 +1496,51 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
             {/* Stat Cards Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
                 <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-                  <span>Total Invoiced</span>
+                  <span className="font-semibold uppercase tracking-wider text-[10px]">Total Invoiced</span>
                   <Receipt className="w-3.5 h-3.5 text-amber-400" />
                 </div>
-                <div className="text-lg font-bold text-slate-100 font-mono">
-                  ₹ {billMetrics.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                <div className="text-xl font-bold text-slate-100 font-mono">
+                  INR {billMetrics.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-[10px] text-slate-500 mt-1">
                   {billMetrics.totalCount} total bill(s)
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
                 <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-                  <span>Received</span>
+                  <span className="font-semibold uppercase tracking-wider text-[10px]">Received</span>
                   <Wallet className="w-3.5 h-3.5 text-emerald-400" />
                 </div>
-                <div className="text-lg font-bold text-emerald-400 font-mono">
-                  ₹ {billMetrics.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                <div className="text-xl font-bold text-emerald-400 font-mono">
+                  INR {billMetrics.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-[10px] text-emerald-500/80 mt-1">
                   {billMetrics.totalPaidCount} fully paid
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
                 <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-                  <span>Balance Due</span>
+                  <span className="font-semibold uppercase tracking-wider text-[10px]">Balance Due</span>
                   <Clock className="w-3.5 h-3.5 text-rose-400" />
                 </div>
-                <div className="text-lg font-bold text-rose-400 font-mono">
-                  ₹ {billMetrics.totalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                <div className="text-xl font-bold text-rose-400 font-mono">
+                  INR {billMetrics.totalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-[10px] text-rose-500/80 mt-1">
                   {billMetrics.totalUnpaidCount + billMetrics.totalPartialCount} pending
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-lg backdrop-blur-xl">
                 <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-                  <span>Bills Summary</span>
+                  <span className="font-semibold uppercase tracking-wider text-[10px]">Bills Summary</span>
                   <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
                 </div>
-                <div className="text-lg font-bold text-slate-100 font-mono">
+                <div className="text-xl font-bold text-slate-100 font-mono">
                   {billMetrics.totalCount} Bills
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">
@@ -1351,20 +1550,20 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
             </div>
 
             {/* Search and Filters */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl space-y-4">
               <div className="flex flex-col md:flex-row gap-3">
                 <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={billSearch}
                     onChange={(e) => setBillSearch(e.target.value)}
                     placeholder="Search by invoice number, client name, or company..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-200 placeholder-slate-500 outline-none transition"
                   />
                 </div>
 
-                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                   {[
                     { id: 'all', label: `All (${billMetrics.totalCount})` },
                     { id: 'unpaid', label: `Unpaid (${billMetrics.totalUnpaidCount})` },
@@ -1377,10 +1576,10 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                       key={tab.id}
                       type="button"
                       onClick={() => setBillStatusFilter(tab.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition cursor-pointer ${
                         billStatusFilter === tab.id
-                          ? 'bg-amber-500 text-slate-950 font-bold'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                          ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                          : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300'
                       }`}
                     >
                       {tab.label}
@@ -1391,24 +1590,24 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
               {/* Invoices Table */}
               {filteredBills.length === 0 ? (
-                <div className="p-8 text-center border border-dashed border-slate-800 rounded-lg text-slate-400 text-xs">
+                <div className="p-10 text-center border border-dashed border-slate-800 rounded-2xl text-slate-400 text-xs bg-slate-950/20">
                   {billSearch ? 'No bills found matching your search.' : 'No studio bills available.'}
                 </div>
               ) : (
-                <div className="border border-slate-800 rounded-lg overflow-x-auto">
+                <div className="border border-slate-800 rounded-2xl overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950 border-b border-slate-800 text-slate-400">
+                    <thead className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                       <tr>
-                        <th className="py-2.5 px-3">Invoice #</th>
-                        <th className="py-2.5 px-3">Client / Company</th>
-                        <th className="py-2.5 px-3">Date</th>
-                        <th className="py-2.5 px-3">Status</th>
-                        <th className="py-2.5 px-3 text-right">Total</th>
-                        <th className="py-2.5 px-3 text-right">Balance Due</th>
-                        <th className="py-2.5 px-3 text-right">Actions</th>
+                        <th className="py-3 px-4">Invoice #</th>
+                        <th className="py-3 px-3">Client / Company</th>
+                        <th className="py-3 px-3">Date</th>
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-3 text-right">Total</th>
+                        <th className="py-3 px-3 text-right">Balance Due</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60">
+                    <tbody className="divide-y divide-slate-800/60 bg-slate-900/30">
                       {filteredBills.map((inv) => {
                         const isPaid = inv.status === 'paid' || (Number(inv.balanceDue) <= 0 && inv.status !== 'cancelled');
                         const isPartial = inv.status === 'partially_paid';
@@ -1416,29 +1615,29 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                         const isDraft = inv.status === 'draft';
 
                         return (
-                          <tr key={inv.invoiceNumber || inv.id} className="hover:bg-slate-800/20">
-                            <td className="py-3 px-3 font-mono font-bold text-amber-400">
+                          <tr key={inv.invoiceNumber || inv.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-3.5 px-4 font-mono font-bold text-amber-400">
                               #{inv.invoiceNumber || `DRF-${String(inv.id).padStart(4, '0')}`}
                             </td>
-                            <td className="py-3 px-3">
-                              <div className="font-semibold text-slate-200">
+                            <td className="py-3.5 px-3">
+                              <div className="font-bold text-slate-100">
                                 {inv.resolvedClientName}
                               </div>
                               {inv.resolvedCompany && (
-                                <div className="text-[11px] text-slate-400">
+                                <div className="text-[11px] text-slate-400 font-normal">
                                   {inv.resolvedCompany}
                                 </div>
                               )}
                             </td>
-                            <td className="py-3 px-3 text-slate-400">
+                            <td className="py-3.5 px-3 text-slate-400 font-mono text-[11px]">
                               {inv.invoiceDate || 'N/A'}
                             </td>
-                            <td className="py-3 px-3">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                            <td className="py-3.5 px-3">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
                                 isPaid
-                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                                   : isPartial
-                                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                                   : isCancelled
                                   ? 'bg-rose-950/40 text-rose-400 border border-rose-800/40'
                                   : isDraft
@@ -1448,20 +1647,20 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                                 {isPaid ? 'Paid' : isPartial ? 'Partially Paid' : isCancelled ? 'Cancelled' : isDraft ? 'Draft' : 'Unpaid'}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-right font-mono font-medium text-slate-200">
-                              ₹ {Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <td className="py-3.5 px-3 text-right font-mono font-medium text-slate-200">
+                              INR {Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold">
+                            <td className="py-3.5 px-3 text-right font-mono font-bold">
                               <span className={Number(inv.balanceDue || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}>
-                                ₹ {Number(inv.balanceDue !== undefined ? inv.balanceDue : inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                INR {Number(inv.balanceDue !== undefined ? inv.balanceDue : inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-right">
+                            <td className="py-3.5 px-4 text-right">
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
                                   onClick={() => handleCopyBillSummary(inv)}
-                                  className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
                                   title="Copy bill summary"
                                 >
                                   {copiedBillId === inv.id ? (
@@ -1473,7 +1672,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                                 <button
                                   type="button"
                                   onClick={() => handleOpenBillInStudio(inv)}
-                                  className="px-2.5 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold text-[11px] flex items-center gap-1 transition"
+                                  className="px-2.5 py-1 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold text-[11px] flex items-center gap-1 transition cursor-pointer"
                                   title="Open in Billing Studio"
                                 >
                                   <ExternalLink className="w-3 h-3" />
