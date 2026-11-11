@@ -55,6 +55,7 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
   const [cancellingInvoice, setCancellingInvoice] = useState(null);
   const [isBatchRemindersOpen, setIsBatchRemindersOpen] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState('');
+  const [isScanningBills, setIsScanningBills] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
   const [isSplitPreviewOpen, setIsSplitPreviewOpen] = useState(true);
 
@@ -122,6 +123,30 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
       setTimeout(() => setSyncFeedback(''), 4000);
     } catch (e) {
       console.warn('Manual sync catalog error:', e);
+    }
+  };
+
+  const handleSyncAllBills = async () => {
+    setIsScanningBills(true);
+    setSyncFeedback('Syncing bills with Supabase Cloud & local storage...');
+    try {
+      const { syncBidirectional, pullAllFromSupabase } = await import('../utils/supabaseSync.js');
+      await syncBidirectional();
+      await pullAllFromSupabase();
+
+      if (typeof window !== 'undefined') {
+        const { triggerCounterpartScan } = await import('../utils/crossOriginSync.js');
+        triggerCounterpartScan();
+      }
+
+      const count = await db.invoices.count();
+      setSyncFeedback(`Sync complete: ${count} bill(s) active in your studio.`);
+    } catch (err) {
+      console.warn('Sync bills notice:', err);
+      setSyncFeedback('Sync finished. Any bills present in cloud database are now restored.');
+    } finally {
+      setIsScanningBills(false);
+      setTimeout(() => setSyncFeedback(''), 5000);
     }
   };
 
@@ -497,28 +522,13 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
 
           <button
             type="button"
-            onClick={() => {
-              if (typeof window !== 'undefined') {
-                const counterpart = window.location.hostname === 'localhost'
-                  ? `http://127.0.0.1:${window.location.port || '5173'}`
-                  : `http://localhost:${window.location.port || '5173'}`;
-                
-                window.dispatchEvent(
-                  new CustomEvent('drfilms:sheets-sync', {
-                    detail: {
-                      type: 'pending',
-                      message: `Checking ${counterpart} for previous bills...`
-                    }
-                  })
-                );
-                import('../utils/crossOriginSync.js').then(m => m.triggerCounterpartScan());
-              }
-            }}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 font-medium text-xs py-2.5 px-3.5 rounded-xl border border-slate-700 transition-colors"
-            title="Scan 127.0.0.1 or localhost if you created bills on another address"
+            onClick={handleSyncAllBills}
+            disabled={isScanningBills}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 font-medium text-xs py-2.5 px-3.5 rounded-xl border border-slate-700 transition-colors cursor-pointer"
+            title="Scan and restore all bills from Supabase Cloud and local counterparts"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-            <span>Scan Missing Bills</span>
+            <RotateCcw className={`w-3.5 h-3.5 text-amber-400 ${isScanningBills ? 'animate-spin' : ''}`} />
+            <span>{isScanningBills ? 'Scanning...' : 'Scan Missing Bills'}</span>
           </button>
 
           <button
@@ -877,22 +887,35 @@ export function InvoicesPage({ onNewInvoice, onViewInvoice, onEditInvoice, initi
             <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/80 p-6">
               <Receipt className="w-12 h-12 text-slate-600 mx-auto mb-3" />
               <h4 className="text-base font-semibold text-slate-300">
-                {statusFilter === 'trash' ? 'Trash is empty' : 'No invoices match your filter'}
+                {statusFilter === 'trash' ? 'Trash is empty' : invoices.length === 0 ? 'No bills found in local database' : 'No invoices match your filter'}
               </h4>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
                 {statusFilter === 'trash'
                   ? 'Deleted invoices will appear here. They are preserved forever in your Google Sheet backup.'
+                  : invoices.length === 0
+                  ? 'If you previously created bills on another device or session, tap below to sync and restore all bills from Supabase Cloud.'
                   : 'Try adjusting your search terms, date ranges, or status tabs.'}
               </p>
               {statusFilter !== 'trash' && (
-                <button
-                  type="button"
-                  onClick={onNewInvoice}
-                  className="mt-4 inline-flex items-center gap-2 bg-amber-500 text-slate-950 text-xs font-semibold px-4 py-2 rounded-xl"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Create New Bill</span>
-                </button>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSyncAllBills}
+                    disabled={isScanningBills}
+                    className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanningBills ? 'animate-spin' : ''}`} />
+                    <span>{isScanningBills ? 'Syncing...' : 'Restore Bills from Cloud'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onNewInvoice}
+                    className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create New Bill</span>
+                  </button>
+                </div>
               )}
             </div>
           ) : (

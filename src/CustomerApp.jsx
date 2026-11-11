@@ -862,6 +862,13 @@ export function CustomerApp() {
           setIsLocked(false);
           recordUserActivity();
           setStudioCloudAuthorized(true);
+          try {
+            registerDexieSyncHooks(db);
+            setupRealtimeSync();
+            syncBidirectional().catch(e => console.warn('Sync notice on unlock:', e));
+          } catch (e) {
+            console.warn('Sync notice on unlock:', e);
+          }
         }}
       />
     )}

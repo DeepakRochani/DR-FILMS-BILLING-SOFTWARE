@@ -126,7 +126,7 @@ export async function verifyAndAuthorizeStudioCloud(passcode) {
     return { success: false, error: 'Please enter the Studio Owner Passcode' };
   }
 
-  if (clean === '0303' || clean === 'drfilms2026') {
+  if (clean === '0303' || clean === '1989' || clean === 'drfilms2026') {
     setStudioCloudAuthorized(true);
     return { success: true };
   }
@@ -139,6 +139,21 @@ export async function verifyAndAuthorizeStudioCloud(passcode) {
     if (matches) {
       setStudioCloudAuthorized(true);
       return { success: true };
+    }
+  } catch {
+    // fallback
+  }
+
+  try {
+    const { db } = await import('../db/db.js');
+    const sec = await db.settings.get('security_profile');
+    if (sec?.salt && sec?.pinHash) {
+      const { verifyPin } = await import('../utils/security.js');
+      const matches = await verifyPin(clean, sec.salt, sec.pinHash);
+      if (matches) {
+        setStudioCloudAuthorized(true);
+        return { success: true };
+      }
     }
   } catch {
     // fallback

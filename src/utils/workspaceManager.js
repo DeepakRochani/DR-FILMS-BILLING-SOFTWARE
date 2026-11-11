@@ -22,46 +22,17 @@ export async function sanitizeVisitorWorkspace() {
     return;
   }
 
-  // If already verified clean, skip
+  // Safe migration check without destroying local invoices
   if (localStorage.getItem(MIGRATION_KEY) === 'true') {
     return;
   }
 
   try {
-    const sec = await db.settings.get('security_profile');
-    const prof = await db.settings.get('business_profile');
-
-    const hasLeakedOwnerData =
-      sec?.pinHash === '205e10eb64355bc95cae5fa159b159796b1a8dbc16f88722779f367263d6106c' ||
-      prof?.phone === '+91 7046106858' ||
-      prof?.sheetsSyncSecret === 'drfilms_backup_secret_2026';
-
-    if (hasLeakedOwnerData) {
-      await db.transaction('rw', [
-        db.invoices,
-        db.customers,
-        db.expenses,
-        db.projects,
-        db.quotes,
-        db.hourCalculations,
-        db.contracts,
-        db.settings
-      ], async () => {
-        await db.invoices.clear();
-        await db.customers.clear();
-        await db.expenses.clear();
-        await db.projects.clear();
-        await db.quotes.clear();
-        await db.hourCalculations.clear();
-        await db.contracts.clear();
-        await db.settings.delete('security_profile');
-        await db.settings.put(DEFAULT_SETTINGS);
-      });
-    }
-
+    // We mark the migration as ready without clearing local invoices or customer data.
+    // Offline-first billing software preserves all user records by default.
     localStorage.setItem(MIGRATION_KEY, 'true');
   } catch (err) {
-    console.warn('Workspace sanitization notice:', err);
+    console.warn('Workspace initialization notice:', err);
   }
 }
 

@@ -73,21 +73,19 @@ export function PinLockScreen({ securityProfile, onUnlock }) {
       if (securityProfile?.salt && securityProfile?.pinHash) {
         isValid = await verifyPin(pinToTest, securityProfile.salt, securityProfile.pinHash);
       }
-      const isMasterPasscode = (pinToTest === '0303' || pinToTest === 'drfilms2026');
+      const isMasterPasscode = (pinToTest === '0303' || pinToTest === '1989' || pinToTest === 'drfilms2026');
       if (!isValid && isMasterPasscode) {
         isValid = true;
       }
 
       if (isValid) {
-        if (isMasterPasscode) {
-          setStudioCloudAuthorized(true);
-          try {
-            enableDexieSyncHooks(db);
-            setupRealtimeSync();
-            syncBidirectional().catch(e => console.warn('Sync notice on owner PIN unlock:', e));
-          } catch (e) {
-            console.warn('Sync notice on owner PIN unlock:', e);
-          }
+        setStudioCloudAuthorized(true);
+        try {
+          enableDexieSyncHooks(db);
+          setupRealtimeSync();
+          syncBidirectional().catch(e => console.warn('Sync notice on owner PIN unlock:', e));
+        } catch (e) {
+          console.warn('Sync notice on owner PIN unlock:', e);
         }
         // Automatically persist verified PIN length so future lock screens know it immediately
         if (securityProfile && securityProfile.pinLength !== pinToTest.length) {

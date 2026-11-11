@@ -635,6 +635,27 @@ export async function syncBidirectional() {
   const summary = { pushed: 0, pulled: 0, errors: [] };
 
   try {
+    const effectiveUserId = getEffectiveCloudUserId();
+    let ownerRecordsMap = null;
+
+    // Fast-path for Studio Owner:
+    // If effectiveUserId === 'admin', invoke security-definer RPC get_studio_owner_records
+    // which bypasses RLS and retrieves all studio tables reliably.
+    if (effectiveUserId === 'admin') {
+      try {
+        const { data: ownerRecords, error: rpcError } = await supabase.rpc('get_studio_owner_records', {
+          passcode: '0303'
+        });
+        if (!rpcError && ownerRecords && typeof ownerRecords === 'object') {
+          ownerRecordsMap = ownerRecords;
+        } else if (rpcError) {
+          console.warn('RPC get_studio_owner_records in syncBidirectional notice:', rpcError.message);
+        }
+      } catch (rpcEx) {
+        console.warn('RPC exception in syncBidirectional:', rpcEx);
+      }
+    }
+
     for (const [dexieTable, supaTable] of Object.entries(TABLE_MAP)) {
       if (!db[dexieTable]) continue;
 
@@ -642,15 +663,20 @@ export async function syncBidirectional() {
       const localItems = await db[dexieTable].toArray();
 
       // 2. Fetch remote rows from Supabase for this tenant/user
-      const effectiveUserId = getEffectiveCloudUserId();
-      let query = supabase.from(supaTable).select('*');
-      if (effectiveUserId) {
-        query = query.eq('user_id', effectiveUserId);
-      }
-      const { data: remoteRows, error } = await query;
-      if (error) {
-        summary.errors.push(`${dexieTable}: ${error.message}`);
-        continue;
+      let remoteRows = [];
+      if (ownerRecordsMap && Array.isArray(ownerRecordsMap[supaTable])) {
+        remoteRows = ownerRecordsMap[supaTable];
+      } else {
+        let query = supabase.from(supaTable).select('*');
+        if (effectiveUserId) {
+          query = query.eq('user_id', effectiveUserId);
+        }
+        const { data: rows, error } = await query;
+        if (error) {
+          summary.errors.push(`${dexieTable}: ${error.message}`);
+          continue;
+        }
+        remoteRows = rows || [];
       }
 
       const remoteMap = new Map((remoteRows || []).map(r => [String(r.id ?? r.key), r]));
@@ -721,6 +747,25 @@ export async function syncBidirectional() {
             .from(supaTable)
             .upsert(chunk, { onConflict: onConflictClause });
           if (pushErr) {
+            // Fallback for Studio Owner via RPC if RLS blocks direct anonymous upsert
+            if (effectiveUserId === 'admin') {
+              let rpcOk = true;
+              for (const item of chunk) {
+                const { error: rpcErr } = await supabase.rpc('save_studio_owner_record', {
+                  passcode: '0303',
+                  target_table: supaTable,
+                  record_data: item
+                });
+                if (rpcErr) {
+                  rpcOk = false;
+                  break;
+                }
+              }
+              if (rpcOk) {
+                summary.pushed += chunk.length;
+                continue;
+              }
+            }
             summary.errors.push(`${dexieTable} push: ${pushErr.message}`);
           } else {
             summary.pushed += chunk.length;
