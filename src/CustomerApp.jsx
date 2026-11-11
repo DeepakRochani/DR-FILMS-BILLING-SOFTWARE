@@ -40,7 +40,7 @@ import { calculateSubscriptionStatus, preVerifyLicenseKey } from './utils/licens
 import { isFeatureAllowedByLicense } from './utils/licenseCrypto';
 import { initGoogleSheetsSync, scheduleAutoSync } from './utils/googleSheetsSync';
 import { setupRealtimeSync, syncBidirectional, registerDexieSyncHooks } from './utils/supabaseSync';
-import { isCloudSyncActive, setStudioCloudAuthorized } from './config/supabase';
+import { isCloudSyncActive, setStudioCloudAuthorized, getSupabase } from './config/supabase';
 import { sanitizeVisitorWorkspace } from './utils/workspaceManager';
 
 import { initCrossOriginBridge, isSyncChannelMode, mergeFromCounterpart } from './utils/crossOriginSync';
@@ -288,6 +288,55 @@ export function CustomerApp() {
       return () => clearTimeout(timer);
     }
   }, [syncToast]);
+
+  // Handle URL deep-linking (e.g. from Admin Portal ?tab=invoices&invoiceId=5)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const invoiceIdParam = params.get('invoiceId');
+      const tabParam = params.get('tab');
+      if (invoiceIdParam) {
+        const num = Number(invoiceIdParam);
+        setActiveInvoiceId(Number.isNaN(num) ? invoiceIdParam : num);
+        setEditInvoiceId(null);
+        setCurrentTab('view_invoice');
+      } else if (tabParam) {
+        setCurrentTab(tabParam);
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  // Supabase Auth State Change Listener (Google / Apple / Email SSO)
+  useEffect(() => {
+    const client = getSupabase();
+    if (!client) return;
+
+    const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+        if (session?.user) {
+          try {
+            registerDexieSyncHooks(db);
+            setupRealtimeSync();
+            await syncBidirectional();
+            setSyncToast({
+              type: 'success',
+              title: 'Account Synced',
+              message: `Signed in as ${session.user.email}. Private database connected.`
+            });
+          } catch (err) {
+            console.warn('Post-login sync notice:', err);
+          }
+        }
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const handleCounterpartFound = (e) => {

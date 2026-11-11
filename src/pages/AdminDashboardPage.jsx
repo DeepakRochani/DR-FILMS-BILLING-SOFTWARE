@@ -27,10 +27,12 @@ import {
   Receipt,
   MessageSquare,
   Database,
-  CheckSquare
+  CheckSquare,
+  ExternalLink
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
+import { getSupabase } from '../config/supabase';
 import { PLAN_TIERS } from '../utils/licenseManager';
 import { 
   generateLicenseKeyAsync, 
@@ -54,8 +56,18 @@ export const FEATURE_MODULES = [
 ];
 
 export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
-  // Navigation tabs: 'issuing' | 'customers' | 'revocations'
-  const [activeTab, setActiveTab] = useState('issuing');
+  // Navigation tabs: 'issuing' | 'customers' | 'revocations' | 'bills'
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const p = new URLSearchParams(window.location.search).get('tab');
+        if (['issuing', 'customers', 'revocations', 'bills'].includes(p)) {
+          return p;
+        }
+      } catch {}
+    }
+    return 'issuing';
+  });
 
   // STRICT IN-MEMORY PRIVATE KEY STATE (Never written to localStorage, sessionStorage, or IndexedDB)
   const [privateKeyInMemory, setPrivateKeyInMemory] = useState(null);
@@ -364,6 +376,186 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
     return matchesSearch && matchesTier;
   });
 
+  // Studio Bills State (Tab: 'bills')
+  const [billSearch, setBillSearch] = useState('');
+  const [billStatusFilter, setBillStatusFilter] = useState('all');
+  const [remoteInvoices, setRemoteInvoices] = useState([]);
+  const [isLoadingRemoteInvoices, setIsLoadingRemoteInvoices] = useState(false);
+  const [remoteFetchNotice, setRemoteFetchNotice] = useState(null);
+  const [copiedBillId, setCopiedBillId] = useState(null);
+
+  // Live query of local Dexie invoices
+  const localInvoices = useLiveQuery(
+    async () => {
+      if (!db.invoices) return [];
+      try {
+        const list = await db.invoices.toArray();
+        return list.filter(inv => !inv?.isDeleted);
+      } catch (err) {
+        console.warn('Could not read local invoices in admin:', err);
+        return [];
+      }
+    },
+    [],
+    []
+  );
+
+  // Live query of local customers to resolve customer names
+  const localCustomers = useLiveQuery(
+    async () => {
+      if (!db.customers) return [];
+      try {
+        return await db.customers.toArray();
+      } catch {
+        return [];
+      }
+    },
+    [],
+    []
+  );
+
+  const fetchRemoteInvoices = async () => {
+    setIsLoadingRemoteInvoices(true);
+    setRemoteFetchNotice(null);
+    try {
+      const client = getSupabase();
+      if (!client) {
+        setRemoteFetchNotice({ type: 'error', text: 'Supabase client is not available.' });
+        return;
+      }
+      const { data, error } = await client
+        .from('invoices')
+        .select('*')
+        .eq('user_id', 'admin')
+        .order('id', { ascending: false });
+
+      if (error) {
+        setRemoteFetchNotice({ type: 'error', text: 'Cloud bills fetch error: ' + error.message });
+      } else if (data) {
+        setRemoteInvoices(data.filter(inv => !inv?.isDeleted));
+        setRemoteFetchNotice({ type: 'success', text: `Loaded ${data.length} cloud bill(s) for Studio Owner.` });
+      }
+    } catch (err) {
+      setRemoteFetchNotice({ type: 'error', text: 'Cloud fetch notice: ' + err.message });
+    } finally {
+      setIsLoadingRemoteInvoices(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'bills') {
+      fetchRemoteInvoices();
+    }
+  }, [activeTab]);
+
+  // Combined list of admin invoices: local + remote (deduplicated)
+  const combinedAdminInvoices = React.useMemo(() => {
+    const map = new Map();
+    const customerMap = new Map();
+    (localCustomers || []).forEach(c => {
+      if (c.id) customerMap.set(c.id, c);
+    });
+
+    (remoteInvoices || []).forEach(inv => {
+      const key = inv.invoiceNumber || String(inv.id);
+      map.set(key, inv);
+    });
+
+    (localInvoices || []).forEach(inv => {
+      const key = inv.invoiceNumber || String(inv.id);
+      const existing = map.get(key) || {};
+      map.set(key, { ...existing, ...inv });
+    });
+
+    const list = Array.from(map.values()).map(inv => {
+      let clientName = inv.customerSnapshot?.name || inv.customerName;
+      let clientCompany = inv.customerSnapshot?.company || inv.company;
+      if (!clientName && inv.customerId && customerMap.has(inv.customerId)) {
+        const c = customerMap.get(inv.customerId);
+        clientName = c.name;
+        clientCompany = c.company;
+      }
+      return {
+        ...inv,
+        resolvedClientName: clientName || 'Direct Client',
+        resolvedCompany: clientCompany || ''
+      };
+    });
+
+    return list.sort((a, b) => {
+      const idA = typeof a.id === 'number' ? a.id : 0;
+      const idB = typeof b.id === 'number' ? b.id : 0;
+      return idB - idA;
+    });
+  }, [localInvoices, remoteInvoices, localCustomers]);
+
+  const billMetrics = React.useMemo(() => {
+    let totalBilled = 0;
+    let totalBalance = 0;
+    let totalPaidCount = 0;
+    let totalPartialCount = 0;
+    let totalUnpaidCount = 0;
+
+    combinedAdminInvoices.forEach(inv => {
+      if (inv.status === 'cancelled') return;
+      const total = Number(inv.totalAmount) || 0;
+      const balance = Number(inv.balanceDue !== undefined ? inv.balanceDue : total);
+      totalBilled += total;
+      totalBalance += balance;
+
+      if (inv.status === 'paid' || balance <= 0) {
+        totalPaidCount++;
+      } else if (inv.status === 'partially_paid') {
+        totalPartialCount++;
+      } else {
+        totalUnpaidCount++;
+      }
+    });
+
+    const totalReceived = Math.max(0, totalBilled - totalBalance);
+
+    return {
+      totalBilled,
+      totalReceived,
+      totalBalance,
+      totalCount: combinedAdminInvoices.length,
+      totalPaidCount,
+      totalPartialCount,
+      totalUnpaidCount
+    };
+  }, [combinedAdminInvoices]);
+
+  const filteredBills = combinedAdminInvoices.filter(inv => {
+    const q = billSearch.toLowerCase().trim();
+    const matchesSearch = !q ||
+      String(inv.invoiceNumber || '').toLowerCase().includes(q) ||
+      String(inv.resolvedClientName || '').toLowerCase().includes(q) ||
+      String(inv.resolvedCompany || '').toLowerCase().includes(q) ||
+      String(inv.phone || '').includes(q);
+
+    if (!matchesSearch) return false;
+
+    if (billStatusFilter === 'all') return true;
+    if (billStatusFilter === 'paid') return inv.status === 'paid' || (Number(inv.balanceDue) <= 0 && inv.status !== 'cancelled');
+    if (billStatusFilter === 'partially_paid') return inv.status === 'partially_paid';
+    if (billStatusFilter === 'unpaid') return inv.status === 'unpaid' || (!inv.status && Number(inv.balanceDue) > 0);
+    if (billStatusFilter === 'draft') return inv.status === 'draft';
+    if (billStatusFilter === 'cancelled') return inv.status === 'cancelled';
+    return true;
+  });
+
+  const handleOpenBillInStudio = (inv) => {
+    const targetId = inv.id;
+    window.location.href = `/?tab=invoices&invoiceId=${targetId}`;
+  };
+
+  const handleCopyBillSummary = (inv) => {
+    const text = `Invoice #${inv.invoiceNumber || inv.id}\nClient: ${inv.resolvedClientName}${inv.resolvedCompany ? ` (${inv.resolvedCompany})` : ''}\nTotal: ₹ ${Number(inv.totalAmount || 0).toLocaleString('en-IN')}\nBalance Due: ₹ ${Number(inv.balanceDue !== undefined ? inv.balanceDue : inv.totalAmount || 0).toLocaleString('en-IN')}\nStatus: ${inv.status || 'unpaid'}`;
+    navigator.clipboard.writeText(text);
+    setCopiedBillId(inv.id);
+    setTimeout(() => setCopiedBillId(null), 2000);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
@@ -468,6 +660,24 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
             {revocationRecord?.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-rose-950 text-rose-300 border border-rose-800/40">
                 {revocationRecord.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('bills')}
+            className={`py-3.5 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition ${
+              activeTab === 'bills'
+                ? 'border-amber-400 text-amber-300 bg-amber-400/5'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Receipt className="w-4 h-4" />
+            <span>Studio Bills & Invoices</span>
+            {combinedAdminInvoices?.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {combinedAdminInvoices.length}
               </span>
             )}
           </button>
@@ -1028,6 +1238,254 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                   <pre className="p-3 bg-slate-950 border border-slate-800 rounded font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto">
                     {JSON.stringify(signedRevocationJson, null, 2)}
                   </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: STUDIO BILLS & INVOICES */}
+        {activeTab === 'bills' && (
+          <div className="space-y-6">
+            {/* Header / Intro Card */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-amber-400" />
+                    <span>Studio Owner Bills & Generated Invoices</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    All generated invoices owned by DR FILMS Studio Admin with Row-Level Security isolation.
+                    Other tenant users cannot view these bills.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isLoadingRemoteInvoices}
+                    onClick={fetchRemoteInvoices}
+                    className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition cursor-pointer"
+                    title="Reload all bills directly from Supabase Cloud"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isLoadingRemoteInvoices ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingRemoteInvoices ? 'Syncing...' : 'Sync Cloud Bills'}</span>
+                  </button>
+                  <a
+                    href="/?tab=invoices"
+                    className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition"
+                    title="Open full interactive invoice manager in Billing Studio"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open in Studio</span>
+                  </a>
+                </div>
+              </div>
+
+              {remoteFetchNotice && (
+                <div className={`mt-3 p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                  remoteFetchNotice.type === 'error'
+                    ? 'bg-rose-500/10 border border-rose-500/20 text-rose-300'
+                    : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                }`}>
+                  {remoteFetchNotice.type === 'error' ? <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> : <Check className="w-3.5 h-3.5 shrink-0" />}
+                  <span>{remoteFetchNotice.text}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Stat Cards Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
+                  <span>Total Invoiced</span>
+                  <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                </div>
+                <div className="text-lg font-bold text-slate-100 font-mono">
+                  ₹ {billMetrics.totalBilled.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  {billMetrics.totalCount} total bill(s)
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
+                  <span>Received</span>
+                  <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                </div>
+                <div className="text-lg font-bold text-emerald-400 font-mono">
+                  ₹ {billMetrics.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10px] text-emerald-500/80 mt-1">
+                  {billMetrics.totalPaidCount} fully paid
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
+                  <span>Balance Due</span>
+                  <Clock className="w-3.5 h-3.5 text-rose-400" />
+                </div>
+                <div className="text-lg font-bold text-rose-400 font-mono">
+                  ₹ {billMetrics.totalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10px] text-rose-500/80 mt-1">
+                  {billMetrics.totalUnpaidCount + billMetrics.totalPartialCount} pending
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
+                  <span>Bills Summary</span>
+                  <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                </div>
+                <div className="text-lg font-bold text-slate-100 font-mono">
+                  {billMetrics.totalCount} Bills
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  {billMetrics.totalPaidCount} Paid · {billMetrics.totalPartialCount} Partial · {billMetrics.totalUnpaidCount} Unpaid
+                </div>
+              </div>
+            </div>
+
+            {/* Search and Filters */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={billSearch}
+                    onChange={(e) => setBillSearch(e.target.value)}
+                    placeholder="Search by invoice number, client name, or company..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                  {[
+                    { id: 'all', label: `All (${billMetrics.totalCount})` },
+                    { id: 'unpaid', label: `Unpaid (${billMetrics.totalUnpaidCount})` },
+                    { id: 'partially_paid', label: `Partial (${billMetrics.totalPartialCount})` },
+                    { id: 'paid', label: `Paid (${billMetrics.totalPaidCount})` },
+                    { id: 'draft', label: 'Draft' },
+                    { id: 'cancelled', label: 'Cancelled' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setBillStatusFilter(tab.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition ${
+                        billStatusFilter === tab.id
+                          ? 'bg-amber-500 text-slate-950 font-bold'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Invoices Table */}
+              {filteredBills.length === 0 ? (
+                <div className="p-8 text-center border border-dashed border-slate-800 rounded-lg text-slate-400 text-xs">
+                  {billSearch ? 'No bills found matching your search.' : 'No studio bills available.'}
+                </div>
+              ) : (
+                <div className="border border-slate-800 rounded-lg overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 border-b border-slate-800 text-slate-400">
+                      <tr>
+                        <th className="py-2.5 px-3">Invoice #</th>
+                        <th className="py-2.5 px-3">Client / Company</th>
+                        <th className="py-2.5 px-3">Date</th>
+                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3 text-right">Total</th>
+                        <th className="py-2.5 px-3 text-right">Balance Due</th>
+                        <th className="py-2.5 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {filteredBills.map((inv) => {
+                        const isPaid = inv.status === 'paid' || (Number(inv.balanceDue) <= 0 && inv.status !== 'cancelled');
+                        const isPartial = inv.status === 'partially_paid';
+                        const isCancelled = inv.status === 'cancelled';
+                        const isDraft = inv.status === 'draft';
+
+                        return (
+                          <tr key={inv.invoiceNumber || inv.id} className="hover:bg-slate-800/20">
+                            <td className="py-3 px-3 font-mono font-bold text-amber-400">
+                              #{inv.invoiceNumber || `DRF-${String(inv.id).padStart(4, '0')}`}
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="font-semibold text-slate-200">
+                                {inv.resolvedClientName}
+                              </div>
+                              {inv.resolvedCompany && (
+                                <div className="text-[11px] text-slate-400">
+                                  {inv.resolvedCompany}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-slate-400">
+                              {inv.invoiceDate || 'N/A'}
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                                isPaid
+                                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                  : isPartial
+                                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                  : isCancelled
+                                  ? 'bg-rose-950/40 text-rose-400 border border-rose-800/40'
+                                  : isDraft
+                                  ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                                  : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                              }`}>
+                                {isPaid ? 'Paid' : isPartial ? 'Partially Paid' : isCancelled ? 'Cancelled' : isDraft ? 'Draft' : 'Unpaid'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-medium text-slate-200">
+                              ₹ {Number(inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold">
+                              <span className={Number(inv.balanceDue || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                                ₹ {Number(inv.balanceDue !== undefined ? inv.balanceDue : inv.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyBillSummary(inv)}
+                                  className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                                  title="Copy bill summary"
+                                >
+                                  {copiedBillId === inv.id ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenBillInStudio(inv)}
+                                  className="px-2.5 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold text-[11px] flex items-center gap-1 transition"
+                                  title="Open in Billing Studio"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span>Open</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

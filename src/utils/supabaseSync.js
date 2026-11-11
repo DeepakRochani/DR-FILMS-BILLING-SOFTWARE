@@ -1,5 +1,5 @@
 import { db } from '../db/db';
-import { getSupabase, isCloudSyncActive } from '../config/supabase';
+import { getSupabase, isCloudSyncActive, getEffectiveCloudUserId } from '../config/supabase';
 
 // Map Dexie table names to Supabase table names
 export const TABLE_MAP = {
@@ -38,16 +38,18 @@ export function saveSyncMetadata(meta) {
 }
 
 /**
- * Convert Dexie record to Supabase table row format
+ * Convert Dexie record to Supabase table row format with multi-tenant user_id isolation
  */
-export function formatRecordForSupabase(dexieTable, item) {
+export function formatRecordForSupabase(dexieTable, item, userId = null) {
   const idStr = String(item.id ?? item.key ?? '');
   const now = new Date().toISOString();
+  const effectiveUserId = userId || getEffectiveCloudUserId() || 'admin';
 
   switch (dexieTable) {
     case 'invoices':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         invoice_number: item.invoiceNumber || 'DRF-0000',
         customer_id: item.customerId ? String(item.customerId) : null,
         invoice_date: item.invoiceDate || null,
@@ -65,6 +67,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'customers':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         name: item.name || 'Unnamed',
         phone: item.phone || null,
         email: item.email || null,
@@ -79,6 +82,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'services':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         name: item.name || 'Service',
         category: item.category || null,
         unit: item.unit || null,
@@ -92,6 +96,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'customCharges':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         name: item.name || 'Charge',
         type: item.type || 'percentage',
         rate: Number(item.rate) || 0,
@@ -104,6 +109,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'quotes':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         quote_number: item.quoteNumber || 'DRF-EST-0000',
         customer_id: item.customerId ? String(item.customerId) : null,
         quote_date: item.quoteDate || null,
@@ -119,6 +125,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'projects':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         title: item.title || 'Project',
         customer_id: item.customerId ? String(item.customerId) : null,
         invoice_id: item.invoiceId ? String(item.invoiceId) : null,
@@ -136,6 +143,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'expenses':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         date: item.date || null,
         category: item.category || 'general',
         amount: Number(item.amount) || 0,
@@ -150,6 +158,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'hourCalculations':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         title: item.title || 'Hour Calculation',
         customer_id: item.customerId ? String(item.customerId) : null,
         total_minutes: Number(item.totalMinutes) || 0,
@@ -162,6 +171,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'contracts':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         contract_number: item.contractNumber || 'DRF-AGR-0000',
         project_id: item.projectId ? String(item.projectId) : null,
         invoice_id: item.invoiceId ? String(item.invoiceId) : null,
@@ -178,6 +188,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'equipment':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         name: item.name || 'Equipment',
         category: item.category || null,
         serial_number: item.serialNumber || null,
@@ -190,6 +201,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'crew':
       return {
         id: idStr,
+        user_id: effectiveUserId,
         name: item.name || 'Crew Member',
         role: item.role || null,
         phone: item.phone || null,
@@ -203,6 +215,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     case 'settings':
       return {
         key: item.key,
+        user_id: effectiveUserId,
         value: item,
         updated_at: now
       };
@@ -210,6 +223,7 @@ export function formatRecordForSupabase(dexieTable, item) {
     default:
       return {
         id: idStr,
+        user_id: effectiveUserId,
         data: item,
         updated_at: now
       };
@@ -277,17 +291,19 @@ export async function pushAllToSupabase(targetTables = null) {
         continue;
       }
 
-      const formatted = records.map(item => formatRecordForSupabase(dexieTable, item));
+      const effectiveUserId = getEffectiveCloudUserId();
+      const formatted = records.map(item => formatRecordForSupabase(dexieTable, item, effectiveUserId));
 
       // Batch in chunks of 50
       const CHUNK_SIZE = 50;
       let tableSuccessCount = 0;
+      const onConflictClause = dexieTable === 'settings' ? 'user_id,key' : 'user_id,id';
 
       for (let i = 0; i < formatted.length; i += CHUNK_SIZE) {
         const chunk = formatted.slice(i, i + CHUNK_SIZE);
         const { error } = await supabase
           .from(supaTable)
-          .upsert(chunk, { onConflict: dexieTable === 'settings' ? 'key' : 'id' });
+          .upsert(chunk, { onConflict: onConflictClause });
 
         if (error) {
           console.error(`Supabase push error on ${supaTable}:`, error);
@@ -334,12 +350,16 @@ export async function pullAllFromSupabase() {
   const results = { totalImported: 0, byTable: {}, errors: [] };
 
   try {
+    const effectiveUserId = getEffectiveCloudUserId();
+
     for (const [dexieTable, supaTable] of Object.entries(TABLE_MAP)) {
       if (!db[dexieTable]) continue;
 
-      const { data, error } = await supabase
-        .from(supaTable)
-        .select('*');
+      let query = supabase.from(supaTable).select('*');
+      if (effectiveUserId) {
+        query = query.eq('user_id', effectiveUserId);
+      }
+      const { data, error } = await query;
 
       if (error) {
         console.error(`Supabase pull error on ${supaTable}:`, error);
@@ -391,10 +411,12 @@ export async function syncRecordToSupabase(dexieTable, item) {
   try {
     const supabase = getSupabase();
     if (!supabase) return;
-    const formatted = formatRecordForSupabase(dexieTable, item);
+    const effectiveUserId = getEffectiveCloudUserId();
+    const formatted = formatRecordForSupabase(dexieTable, item, effectiveUserId);
+    const onConflictClause = dexieTable === 'settings' ? 'user_id,key' : 'user_id,id';
     await supabase
       .from(supaTable)
-      .upsert(formatted, { onConflict: dexieTable === 'settings' ? 'key' : 'id' });
+      .upsert(formatted, { onConflict: onConflictClause });
   } catch (err) {
     console.warn(`Background sync failed for ${dexieTable} ${item.id}:`, err);
   }
@@ -533,8 +555,13 @@ export async function syncBidirectional() {
       // 1. Fetch all local records
       const localItems = await db[dexieTable].toArray();
 
-      // 2. Fetch all remote rows from Supabase
-      const { data: remoteRows, error } = await supabase.from(supaTable).select('*');
+      // 2. Fetch remote rows from Supabase for this tenant/user
+      const effectiveUserId = getEffectiveCloudUserId();
+      let query = supabase.from(supaTable).select('*');
+      if (effectiveUserId) {
+        query = query.eq('user_id', effectiveUserId);
+      }
+      const { data: remoteRows, error } = await query;
       if (error) {
         summary.errors.push(`${dexieTable}: ${error.message}`);
         continue;
@@ -601,11 +628,12 @@ export async function syncBidirectional() {
 
       // Apply push in chunks of 50
       if (toPush.length > 0) {
+        const onConflictClause = dexieTable === 'settings' ? 'user_id,key' : 'user_id,id';
         for (let i = 0; i < toPush.length; i += 50) {
           const chunk = toPush.slice(i, i + 50);
           const { error: pushErr } = await supabase
             .from(supaTable)
-            .upsert(chunk, { onConflict: dexieTable === 'settings' ? 'key' : 'id' });
+            .upsert(chunk, { onConflict: onConflictClause });
           if (pushErr) {
             summary.errors.push(`${dexieTable} push: ${pushErr.message}`);
           } else {

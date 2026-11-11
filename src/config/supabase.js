@@ -11,10 +11,10 @@ export const STORAGE_KEY_KEY = 'drfilms_supabase_anon_key';
 export const STORAGE_KEY_STUDIO_AUTH = 'drfilms_studio_cloud_authorized';
 
 /**
- * Check if the current device is authorized for DR FILMS Studio Cloud sync.
+ * Check if the current device is authorized as DR FILMS Studio Owner/Admin.
  * Localhost is always authorized for the owner.
- * On public deployments (e.g. Vercel), each user operates their own isolated
- * local billing software unless explicitly authorized with the Studio Owner passcode.
+ * On public deployments (e.g. Vercel), owner authorization is unlocked
+ * via the 4-digit Master PIN (0303) or by signing in with the owner email.
  */
 export function isStudioCloudAuthorized() {
   if (typeof window === 'undefined') return false;
@@ -38,7 +38,6 @@ export function setStudioCloudAuthorized(authorized) {
   } else {
     localStorage.removeItem(STORAGE_KEY_STUDIO_AUTH);
   }
-  supabaseInstance = null;
 }
 
 /**
@@ -54,11 +53,63 @@ export function isCustomSupabaseConfigured() {
 }
 
 /**
- * Check if cloud sync is active on this device.
- * False by default for all public visitors to guarantee private, isolated billing software.
+ * Get current authenticated user profile from local Supabase Auth cache
+ */
+export function getCurrentAuthUser() {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const authKey = `sb-${SUPABASE_PROJECT_ID}-auth-token`;
+    const raw = localStorage.getItem(authKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the effective tenant user_id for cloud queries and synchronization:
+ * 1. If an authenticated user exists (Google, Apple, or Email):
+ *    - If email matches owner (contact@drfilms.studio or deepurochani@gmail.com), returns 'admin'.
+ *    - Otherwise returns the user's isolated UUID.
+ * 2. If the device is authorized as Studio Owner (PIN 0303 or localhost), returns 'admin'.
+ * 3. Otherwise returns null (Private Local Mode).
+ */
+export function getEffectiveCloudUserId() {
+  const user = getCurrentAuthUser();
+  if (user) {
+    const email = String(user.email || '').toLowerCase().trim();
+    if (['contact@drfilms.studio', 'deepurochani@gmail.com'].includes(email)) {
+      return 'admin';
+    }
+    if (user.id) {
+      return String(user.id);
+    }
+  }
+
+  if (isStudioCloudAuthorized()) {
+    return 'admin';
+  }
+
+  return null;
+}
+
+/**
+ * Check if the active session belongs to the DR FILMS Studio Admin
+ */
+export function isAdminAuthenticated() {
+  return getEffectiveCloudUserId() === 'admin';
+}
+
+/**
+ * Check if cloud sync is active on this device:
+ * True if user is signed in with Google/Apple/Email, or if owner PIN is verified,
+ * or if custom Supabase is configured.
+ * False by default for anonymous public visitors to guarantee private, isolated billing software.
  */
 export function isCloudSyncActive() {
-  return isStudioCloudAuthorized() || isCustomSupabaseConfigured();
+  return isStudioCloudAuthorized() || isCustomSupabaseConfigured() || Boolean(getEffectiveCloudUserId());
 }
 
 /**
@@ -92,7 +143,7 @@ export async function verifyAndAuthorizeStudioCloud(passcode) {
 }
 
 /**
- * Get active Supabase URL (custom override, studio owner default, or null in private local mode)
+ * Get active Supabase URL
  */
 export function getActiveSupabaseUrl() {
   try {
@@ -102,17 +153,14 @@ export function getActiveSupabaseUrl() {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) {
       return import.meta.env.VITE_SUPABASE_URL;
     }
-    if (isStudioCloudAuthorized()) {
-      return DEFAULT_SUPABASE_URL;
-    }
-    return null;
+    return DEFAULT_SUPABASE_URL;
   } catch {
-    return null;
+    return DEFAULT_SUPABASE_URL;
   }
 }
 
 /**
- * Get active Supabase Anon Key (custom override, studio owner default, or null in private local mode)
+ * Get active Supabase Anon Key
  */
 export function getActiveSupabaseAnonKey() {
   try {
@@ -122,12 +170,9 @@ export function getActiveSupabaseAnonKey() {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) {
       return import.meta.env.VITE_SUPABASE_ANON_KEY;
     }
-    if (isStudioCloudAuthorized()) {
-      return DEFAULT_SUPABASE_ANON_KEY;
-    }
-    return null;
+    return DEFAULT_SUPABASE_ANON_KEY;
   } catch {
-    return null;
+    return DEFAULT_SUPABASE_ANON_KEY;
   }
 }
 
@@ -136,13 +181,9 @@ let currentUrl = null;
 let currentKey = null;
 
 /**
- * Get the singleton Supabase client. Returns null if running in Private Local Mode.
+ * Get the singleton Supabase client
  */
 export function getSupabase() {
-  if (!isCloudSyncActive()) {
-    return null;
-  }
-
   const url = getActiveSupabaseUrl();
   const key = getActiveSupabaseAnonKey();
 

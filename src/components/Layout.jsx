@@ -23,14 +23,15 @@ import {
   Award,
   Cloud,
   Database,
-  RefreshCw
+  RefreshCw,
+  User
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { calculateSubscriptionStatus } from '../utils/licenseManager';
 import { isFeatureAllowedByLicense } from '../utils/licenseCrypto';
 import { syncBidirectional } from '../utils/supabaseSync';
-import { isCloudSyncActive } from '../config/supabase';
+import { isCloudSyncActive, isAdminAuthenticated, getCurrentAuthUser } from '../config/supabase';
 import { StudioCloudModal } from './StudioCloudModal';
 
 
@@ -40,6 +41,9 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
   const [isInstallable, setIsInstallable] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [isStudioCloudModalOpen, setIsStudioCloudModalOpen] = useState(false);
+
+  const currentUser = getCurrentAuthUser();
+  const isAdmin = isAdminAuthenticated();
 
   const handleCloudSync = async () => {
     if (!isCloudSyncActive()) {
@@ -274,18 +278,23 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
             );
           })}
 
-          {/* Admin Master Portal Button */}
-          {onOpenAdminPortal && (
+          {/* Admin Master Portal Link for Studio Owner */}
+          {(onOpenAdminPortal || isAdmin) && (
             <div className="pt-2 mt-2 border-t border-slate-800/60">
-              <button
-                type="button"
-                onClick={onOpenAdminPortal}
+              <a
+                href="/admin"
+                onClick={(e) => {
+                  if (onOpenAdminPortal) {
+                    e.preventDefault();
+                    onOpenAdminPortal();
+                  }
+                }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
                   currentTab === 'admin_dashboard'
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-lg shadow-amber-500/10'
                     : 'bg-slate-900/80 text-slate-300 hover:text-amber-300 hover:border-amber-500/30 hover:bg-slate-800/80 border-slate-800'
                 }`}
-                title="Master Admin Portal: Users, Access Control & Website Deployment"
+                title="Studio Owner Admin Portal: Issued Licenses & Generated Bills"
               >
                 <div className="flex items-center gap-2.5">
                   <ShieldCheck className="w-4 h-4 text-amber-400" />
@@ -294,7 +303,7 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
                 <span className="text-[10px] font-mono tracking-wider uppercase bg-amber-500/15 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/25">
                   Master
                 </span>
-              </button>
+              </a>
             </div>
           )}
         </nav>
@@ -312,31 +321,45 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
             </button>
           )}
 
+          {/* Account & Cloud Sync Trigger */}
           <div 
             onClick={() => setIsStudioCloudModalOpen(true)}
-            className="flex items-center justify-between text-xs px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors"
-            title={isCloudSyncActive() ? 'Cloud Synced — Click to manage cloud sync' : 'Private Local Mode — Click to configure cloud sync'}
+            className="flex items-center justify-between text-xs px-2.5 py-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors"
+            title={
+              currentUser 
+                ? `Signed in as ${currentUser.email} (${isAdmin ? 'Studio Owner' : 'Private Tenant Cloud'}) - Click to manage account`
+                : isCloudSyncActive()
+                ? 'Cloud Synced - Click to manage'
+                : 'Private Local Mode - Click to Sign in with Google / Apple'
+            }
           >
-            <span className="text-slate-400 flex items-center gap-1.5">
-              {isCloudSyncActive() ? (
-                <>
-                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400 font-medium">Cloud Synced</span>
-                </>
-              ) : isOnline ? (
-                <>
-                  <Database className="w-3.5 h-3.5 text-sky-400" />
-                  <span className="text-sky-300 font-medium">Private Local</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Offline Ready</span>
-                </>
-              )}
-            </span>
-            <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-mono">
-              IndexedDB
+            <div className="flex items-center gap-2 min-w-0">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                isAdmin 
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' 
+                  : currentUser 
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                  : 'bg-slate-800 text-slate-400'
+              }`}>
+                {isAdmin ? (
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                ) : currentUser ? (
+                  <User className="w-3.5 h-3.5" />
+                ) : (
+                  <Cloud className="w-3.5 h-3.5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-slate-200 truncate leading-tight">
+                  {isAdmin ? 'Studio Owner' : currentUser?.email ? currentUser.email.split('@')[0] : 'Private Billing'}
+                </p>
+                <p className="text-[10px] text-slate-400 truncate leading-tight">
+                  {currentUser ? (isAdmin ? 'Admin Master' : 'Google / Apple Synced') : 'Sign In / Cloud'}
+                </p>
+              </div>
+            </div>
+            <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono shrink-0 ml-1">
+              {currentUser ? 'Cloud' : 'Local'}
             </span>
           </div>
 
@@ -380,10 +403,15 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
           </div>
 
           <div className="flex items-center gap-2">
-            {onOpenAdminPortal && (
-              <button
-                type="button"
-                onClick={onOpenAdminPortal}
+            {(onOpenAdminPortal || isAdmin) && (
+              <a
+                href="/admin"
+                onClick={(e) => {
+                  if (onOpenAdminPortal) {
+                    e.preventDefault();
+                    onOpenAdminPortal();
+                  }
+                }}
                 className={`p-1.5 rounded-lg border transition-colors ${
                   currentTab === 'admin_dashboard'
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
@@ -392,8 +420,22 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
                 title="Admin Portal"
               >
                 <ShieldCheck className="w-4 h-4 text-amber-400" />
-              </button>
+              </a>
             )}
+            <button
+              type="button"
+              onClick={() => setIsStudioCloudModalOpen(true)}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border border-slate-700 transition-colors cursor-pointer"
+              title={currentUser ? `Account: ${currentUser.email}` : 'Sign In with Google / Apple'}
+            >
+              {isAdmin ? (
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+              ) : currentUser ? (
+                <User className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <User className="w-4 h-4 text-slate-400" />
+              )}
+            </button>
             {onRequestCloseApp && (
               <button
                 type="button"
