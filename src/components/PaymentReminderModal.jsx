@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { db } from '../db/db';
 import { formatCurrency, formatDate, formatInvoiceNumber } from '../utils/formatters';
-import { cleanWhatsAppPhone, shouldOpenWhatsAppWeb } from '../utils/whatsapp';
+import { cleanWhatsAppPhone, shouldOpenWhatsAppWeb, openWhatsAppUrl } from '../utils/whatsapp';
 import { 
   selectReminderTone, 
   isRecentlyReminded, 
@@ -132,8 +132,8 @@ export function PaymentReminderModal({
             ? `https://wa.me/${cleanPhone}?text=${encodedMsg}`
             : `https://api.whatsapp.com/send?text=${encodedMsg}`);
 
-      // Open WhatsApp window
-      window.open(url, '_blank', 'noopener,noreferrer');
+      // Open WhatsApp window or native app
+      openWhatsAppUrl(url);
 
       // Update Dexie database records for all invoices in this reminder
       const nowIso = new Date().toISOString();

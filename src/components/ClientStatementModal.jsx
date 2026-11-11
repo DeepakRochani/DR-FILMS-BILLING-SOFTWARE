@@ -17,11 +17,12 @@ import { formatCurrency, formatDate, formatInvoiceNumber } from '../utils/format
 import { 
   calculateClientStatement, 
   generateStatementWhatsAppMessage,
-  getStatementWhatsAppWebUrl 
+  getStatementWhatsAppWebUrl,
+  getStatementWhatsAppShareUrl 
 } from '../utils/statementCalculations.js';
 import { buildUpiLink, generateQrDataUrl, generateQrSvgString } from '../utils/qrGenerator.js';
 import { buildInvoicePdf, exportInvoiceToPdf, generateInvoicePdfFile } from '../utils/pdfExport.js';
-import { shouldOpenWhatsAppWeb } from '../utils/whatsapp.js';
+import { shouldOpenWhatsAppWeb, openWhatsAppUrl } from '../utils/whatsapp.js';
 import { setSharingActive } from '../utils/security.js';
 
 export function ClientStatementModal({ isOpen, onClose, client, allInvoices = [], settings }) {
@@ -138,15 +139,39 @@ export function ClientStatementModal({ isOpen, onClose, client, allInvoices = []
       const textMsg = generateStatementWhatsAppMessage(client, statement, settings);
 
       if (canShare) {
-        await navigator.share({
-          files: [pdfFile],
-          title: `Statement of Account - ${client.name}`,
-          text: textMsg
-        });
-      } else {
-        const webUrl = getStatementWhatsAppWebUrl(client, statement, settings);
-        window.open(webUrl, '_blank', 'noopener,noreferrer');
+        try {
+          await navigator.share({
+            files: [pdfFile],
+            title: `Statement of Account - ${client.name}`,
+            text: textMsg
+          });
+          setShareFeedback('');
+          return;
+        } catch (shareErr) {
+          if (shareErr.name === 'AbortError') {
+            setShareFeedback('');
+            return;
+          }
+          console.error('WhatsApp Statement Share error, falling back to download & WhatsApp:', shareErr);
+        }
       }
+
+      // Mobile fallback if share sheet fails or is unsupported
+      const downloadUrl = URL.createObjectURL(pdfFile);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = cleanFilename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+
+      setDownloadToast('Statement downloaded. In WhatsApp, attach the file via Document (+ icon).');
+      setTimeout(() => setDownloadToast(''), 6000);
+
+      const shareUrl = getStatementWhatsAppShareUrl(client, statement, settings);
+      openWhatsAppUrl(shareUrl);
+      setTimeout(() => setShareFeedback(''), 3000);
     } catch (err) {
       if (err.name !== 'AbortError') {
         console.error('WhatsApp Statement Share error:', err);

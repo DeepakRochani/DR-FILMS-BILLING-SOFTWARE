@@ -173,16 +173,18 @@ export function PaymentReceiptModal({
             title: `Payment Receipt - ${receiptNumber}`,
             text: message
           });
+          setFeedbackToast('');
+          return;
         } catch (shareErr) {
-          if (shareErr.name !== 'AbortError') {
-            console.error('Receipt share sheet error:', shareErr);
+          if (shareErr.name === 'AbortError') {
+            setFeedbackToast('');
+            return;
           }
+          console.error('Receipt share sheet error, falling back to download & WhatsApp:', shareErr);
         }
-        setFeedbackToast('');
-        return;
       }
 
-      // Mobile fallback if Web Share is unsupported
+      // Mobile fallback if Web Share is unsupported or fails
       const downloadUrl = URL.createObjectURL(pdfFile);
       const downloadLink = document.createElement('a');
       downloadLink.href = downloadUrl;
@@ -191,6 +193,9 @@ export function PaymentReceiptModal({
       downloadLink.click();
       document.body.removeChild(downloadLink);
       setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+
+      setFeedbackToast('Receipt PDF downloaded. In WhatsApp, attach the file via Document (+ icon).');
+      setTimeout(() => setFeedbackToast(''), 7000);
 
       sendWhatsAppMessage({
         phone: clientPhone,
@@ -327,7 +332,7 @@ export function PaymentReceiptModal({
           className="bg-white text-slate-950 p-6 sm:p-8 rounded-2xl shadow-md border border-slate-200 relative font-sans space-y-4"
         >
           {/* Studio Top Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b-2 border-slate-950">
+          <div className="receipt-pdf-header flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b-2 border-slate-950">
             <div>
               <div className="flex items-center gap-2.5">
                 {settings?.logoUrl ? (
@@ -411,7 +416,7 @@ export function PaymentReceiptModal({
           </div>
 
           {/* Client & Received Amount Card */}
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 p-4 sm:p-5 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="receipt-pdf-client-row flex flex-col sm:flex-row sm:items-start justify-between gap-4 p-4 sm:p-5 bg-slate-50 rounded-xl border border-slate-200">
             <div className="space-y-1">
               <span className="text-[10px] uppercase font-extrabold text-slate-500 block tracking-wider">
                 Received With Thanks From:
@@ -458,7 +463,7 @@ export function PaymentReceiptModal({
           </div>
 
           {/* Amount in Words */}
-          <div className="p-3.5 bg-amber-50/80 border border-amber-200/80 rounded-xl">
+          <div className="receipt-pdf-words-block p-3.5 bg-amber-50/80 border border-amber-200/80 rounded-xl">
             <span className="text-[10px] uppercase font-bold text-amber-900 block tracking-wider">Amount in Words:</span>
             <p className="font-semibold text-slate-950 text-xs sm:text-sm italic mt-1 leading-relaxed">
               {numberToWords(payment.amount)}
@@ -466,7 +471,7 @@ export function PaymentReceiptModal({
           </div>
 
           {/* Payment & Shoot Details Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 text-xs">
+          <div className="receipt-pdf-grid-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 text-xs">
             <div className="p-3 rounded-xl border border-slate-200 bg-white min-h-[68px] flex flex-col items-center justify-center text-center">
               <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider text-center">Payment Mode</span>
               <span className="text-xs font-bold text-slate-900 mt-1 block capitalize leading-normal text-center">
@@ -587,7 +592,7 @@ export function PaymentReceiptModal({
                 <span className="text-[10px] text-slate-500 font-medium pr-1">Against Bill: {formattedInvoiceNum}</span>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="receipt-pdf-options-row flex flex-col sm:flex-row items-center justify-between gap-4">
                 {/* Bank details */}
                 <div className="text-xs space-y-1 text-slate-700 flex-1 w-full sm:w-auto">
                   {(settings?.bankDetails?.accountName || settings?.ownerName) && (
@@ -675,7 +680,7 @@ export function PaymentReceiptModal({
           )}
 
           {/* Authorized Signatory Block */}
-          <div className="pt-4 border-t border-slate-200 flex items-end justify-between text-xs mt-auto">
+          <div className="receipt-pdf-footer pt-4 border-t border-slate-200 flex items-end justify-between text-xs mt-auto">
             <div className="text-[10px] text-slate-500 max-w-sm leading-relaxed">
               <p className="font-semibold text-slate-700">Official Computer-Generated Receipt Voucher</p>
               <p>Issued by {settings?.businessName || 'DR FILMS'}. Subject to payment realization.</p>

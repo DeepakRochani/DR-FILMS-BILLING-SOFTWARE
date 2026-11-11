@@ -7,7 +7,7 @@ import {
   Check, 
   AlertCircle 
 } from 'lucide-react';
-import { cleanWhatsAppPhone, shouldOpenWhatsAppWeb } from '../utils/whatsapp.js';
+import { cleanWhatsAppPhone, shouldOpenWhatsAppWeb, openWhatsAppUrl } from '../utils/whatsapp.js';
 import { generateDeliveredWhatsAppMessage } from '../utils/projectUtils.js';
 import { removeEmojis } from '../utils/reminderCalculations.js';
 
@@ -30,7 +30,7 @@ export function ProjectDeliveredModal({ project, settings, isOpen, onClose }) {
       ? (cleanPhone ? `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encoded}` : `https://web.whatsapp.com/send?text=${encoded}`)
       : (cleanPhone ? `https://wa.me/${cleanPhone}?text=${encoded}` : `https://api.whatsapp.com/send?text=${encoded}`);
 
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openWhatsAppUrl(url);
     onClose();
   };
 

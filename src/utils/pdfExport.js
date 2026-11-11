@@ -19,6 +19,7 @@ export const DEFAULT_PDF_OPT = {
     logging: true,
     scrollX: 0,
     scrollY: 0,
+    windowWidth: 1024,
     backgroundColor: '#ffffff'
   },
   jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
@@ -181,8 +182,7 @@ export async function buildInvoicePdf(elementId, filename = 'invoice.pdf', qrDat
           clonedPaper.style.minWidth = '0px';
           clonedPaper.style.maxWidth = '100%';
           if (elementId === 'printable-payment-receipt') {
-            clonedPaper.style.minHeight = '1040px';
-            clonedPaper.style.padding = '24px 28px';
+            clonedPaper.style.padding = '16px 22px';
             clonedPaper.style.borderRadius = '0px';
             clonedPaper.style.boxShadow = 'none';
             clonedPaper.style.border = 'none';
@@ -190,6 +190,8 @@ export async function buildInvoicePdf(elementId, filename = 'invoice.pdf', qrDat
             clonedPaper.style.display = 'flex';
             clonedPaper.style.flexDirection = 'column';
             clonedPaper.style.justifyContent = 'space-between';
+            clonedPaper.style.pageBreakInside = 'avoid';
+            clonedPaper.style.breakInside = 'avoid';
 
             // Ensure no text clipping on cloned elements
             clonedPaper.querySelectorAll('.truncate').forEach(el => {
@@ -350,13 +352,21 @@ export async function buildInvoicePdf(elementId, filename = 'invoice.pdf', qrDat
     // Post-generation guard: prune accidental blank trailing page
     const totalPages = pdf.internal.getNumberOfPages();
     if (totalPages > 1) {
-      const elementHeight = element.scrollHeight || element.offsetHeight || 0;
-      // In 794px coordinate space, a single A4 page accommodates up to ~1140px.
-      // If content height fits within 1 page (<= 1200px) or was barely overflowing
-      // due to sub-pixel calculation, remove the trailing blank ghost page.
-      if (elementHeight <= 1200 || (totalPages === 2 && elementHeight <= 1300)) {
-        console.log(`[DR FILMS PDF] Detected accidental trailing page (${totalPages} pages for height ${elementHeight}px). Pruning blank trailing page.`);
-        pdf.deletePage(totalPages);
+      if (elementId === 'printable-payment-receipt') {
+        // Payment receipt vouchers are strictly single-page documents.
+        // Prune any accidental trailing page so it is always 100% a single page.
+        while (pdf.internal.getNumberOfPages() > 1) {
+          pdf.deletePage(pdf.internal.getNumberOfPages());
+        }
+      } else {
+        const elementHeight = element.scrollHeight || element.offsetHeight || 0;
+        // In 794px coordinate space, a single A4 page accommodates up to ~1140px.
+        // If content height fits within 1 page (<= 1200px) or was barely overflowing
+        // due to sub-pixel calculation, remove the trailing blank ghost page.
+        if (elementHeight <= 1200 || (totalPages === 2 && elementHeight <= 1300)) {
+          console.log(`[DR FILMS PDF] Detected accidental trailing page (${totalPages} pages for height ${elementHeight}px). Pruning blank trailing page.`);
+          pdf.deletePage(totalPages);
+        }
       }
     }
 

@@ -254,15 +254,36 @@ export function getWhatsAppShareUrl(invoice, settings, options = {}) {
 }
 
 /**
+ * Safely open a WhatsApp URL across desktop and mobile devices.
+ * On mobile devices, window.location.href or a direct simulated anchor click triggers
+ * the native WhatsApp application seamlessly without popup blockers or empty blank tabs.
+ * On desktop, window.open(url, '_blank') opens in a new tab.
+ */
+export function openWhatsAppUrl(url) {
+  if (typeof window === 'undefined' || !url) return;
+  if (isMobileDevice()) {
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (_) {
+      window.location.href = url;
+    }
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+/**
  * Open WhatsApp chat in a new tab with clean phone number & prefilled message
  */
 export function openWhatsAppShare(invoice, settings, options = {}) {
   setSharingActive(true);
   try {
     const url = getWhatsAppShareUrl(invoice, settings, options);
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
+    openWhatsAppUrl(url);
   } finally {
     // Keep sharing guard active for 5 seconds while browser switches tab/app to WhatsApp
     setTimeout(() => {
@@ -296,14 +317,14 @@ export function sendWhatsAppMessage({ phone, text, mode = 'auto', defaultCountry
       url = phoneDigits
         ? `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodedText}`
         : `https://web.whatsapp.com/send?text=${encodedText}`;
+      if (typeof window !== 'undefined') {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     } else {
       url = phoneDigits
         ? `https://wa.me/${phoneDigits}?text=${encodedText}`
         : `https://api.whatsapp.com/send?text=${encodedText}`;
-    }
-
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer');
+      openWhatsAppUrl(url);
     }
   } finally {
     setTimeout(() => {

@@ -421,15 +421,17 @@ export function InvoiceViewPage({ invoiceId, onBack, onEdit, onGoToProjects }) {
             text: shortMessage
           });
           console.log('[DR FILMS SHARE] navigator.share completed successfully.');
+          setShareFeedback('');
+          return;
         } catch (shareErr) {
           if (shareErr.name === 'AbortError') {
             console.log('[DR FILMS SHARE] User cancelled share sheet (AbortError ignored).');
+            setShareFeedback('');
+            return;
           } else {
-            console.error('[DR FILMS SHARE] navigator.share encountered error:', shareErr);
+            console.error('[DR FILMS SHARE] navigator.share encountered error, falling back to download & WhatsApp:', shareErr);
           }
         }
-        setShareFeedback('');
-        return;
       }
 
       // Mobile fallback if navigator.share fails or is unsupported:

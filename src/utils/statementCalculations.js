@@ -241,7 +241,7 @@ Thank you,
 ${businessName}${phone ? `\nPhone: ${phone}` : ''}`;
 }
 
-import { cleanWhatsAppPhone } from './whatsapp.js';
+import { cleanWhatsAppPhone, shouldOpenWhatsAppWeb } from './whatsapp.js';
 
 export function getStatementWhatsAppWebUrl(client, statementData, settings) {
   const text = generateStatementWhatsAppMessage(client, statementData, settings);
@@ -254,4 +254,21 @@ export function getStatementWhatsAppWebUrl(client, statementData, settings) {
     return `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodedText}`;
   }
   return `https://web.whatsapp.com/send?text=${encodedText}`;
+}
+
+export function getStatementWhatsAppShareUrl(client, statementData, settings, options = {}) {
+  const useWeb = options.forceWeb !== undefined ? options.forceWeb : shouldOpenWhatsAppWeb(settings);
+  if (useWeb) {
+    return getStatementWhatsAppWebUrl(client, statementData, settings);
+  }
+
+  const text = generateStatementWhatsAppMessage(client, statementData, settings);
+  const rawPhone = client?.phone || '';
+  const cc = settings?.defaultCountryCode || '91';
+  const phoneDigits = cleanWhatsAppPhone(rawPhone, cc);
+  const encodedText = encodeURIComponent(text);
+
+  return phoneDigits
+    ? `https://wa.me/${phoneDigits}?text=${encodedText}`
+    : `https://api.whatsapp.com/send?text=${encodedText}`;
 }

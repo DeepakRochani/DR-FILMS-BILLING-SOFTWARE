@@ -130,7 +130,7 @@
 #printable-payment-receipt.pdf-rendering,
 .pdf-rendering#printable-payment-receipt,
 .pdf-rendering #printable-payment-receipt {
-  padding: 24px 28px !important;
+  padding: 16px 22px !important;
   box-shadow: none !important;
   border: none !important;
   border-radius: 0 !important;
@@ -139,11 +139,62 @@
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
-  min-height: 1040px !important;
   box-sizing: border-box !important;
   display: flex !important;
   flex-direction: column !important;
   justify-content: space-between !important;
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+}
+
+.pdf-rendering .receipt-pdf-header {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+  padding-bottom: 8px !important;
+}
+
+.pdf-rendering .receipt-pdf-client-row {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+  padding: 10px 14px !important;
+  gap: 12px !important;
+}
+
+.pdf-rendering .receipt-pdf-words-block {
+  padding: 8px 12px !important;
+}
+
+.pdf-rendering .receipt-pdf-grid-4 {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  padding-top: 2px !important;
+}
+
+.pdf-rendering .receipt-pdf-grid-4 > div {
+  padding: 8px 10px !important;
+  min-height: 56px !important;
+}
+
+.pdf-rendering .receipt-pdf-options-row {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.pdf-rendering .receipt-pdf-footer {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: flex-end !important;
+  padding-top: 10px !important;
+  margin-top: auto !important;
 }
 
 .pdf-rendering #printable-payment-receipt .truncate {
