@@ -13,9 +13,11 @@ import {
   QrCode,
   ClipboardPaste,
   ShieldCheck,
-  RefreshCw
+  RefreshCw,
+  CreditCard
 } from 'lucide-react';
 import { activateWithLicenseKey } from '../utils/licenseManager';
+import { SubscriptionCheckoutModal } from './SubscriptionCheckoutModal';
 
 export function SubscriptionLockoutScreen({ 
   subscriptionConfig, 
@@ -28,6 +30,7 @@ export function SubscriptionLockoutScreen({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const fileInputRef = useRef(null);
 
   const studioName = subscriptionConfig?.clientStudioName || 'Studio Billing';
@@ -179,6 +182,29 @@ export function SubscriptionLockoutScreen({
           </div>
         </div>
 
+        {/* Instant UPI Payment Unlock Option */}
+        <div className="bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/40 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <CreditCard className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-slate-100 block">Instant Payment Subscription</span>
+                <span className="text-[11px] text-slate-400">Select any plan, pay via UPI QR, and unlock immediately</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCheckoutModal(true)}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 transition cursor-pointer flex items-center justify-center gap-2"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Select Plan & Pay via UPI</span>
+          </button>
+        </div>
+
         {/* Activation Key Form */}
         <form onSubmit={handleActivate} className="space-y-3 bg-slate-950/50 p-4 rounded-2xl border border-slate-800">
           <div className="flex items-center justify-between">
@@ -321,6 +347,23 @@ export function SubscriptionLockoutScreen({
         </div>
       )}
 
+      {/* Subscription Payment Checkout Modal */}
+      <SubscriptionCheckoutModal
+        isOpen={showCheckoutModal}
+        onClose={() => setShowCheckoutModal(false)}
+        selectedTier="pro"
+        onPlanActivated={() => {
+          setShowCheckoutModal(false);
+          setSuccessMessage('Payment confirmed! Software successfully unlocked.');
+          setTimeout(() => {
+            if (onSubscriptionRenewed) {
+              onSubscriptionRenewed();
+            } else {
+              window.location.reload();
+            }
+          }, 1200);
+        }}
+      />
     </div>
   );
 }

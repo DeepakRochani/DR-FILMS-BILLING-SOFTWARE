@@ -51,6 +51,7 @@ import { DEFAULT_SETTINGS, DEFAULT_WHATSAPP_TEMPLATE, DEFAULT_WHATSAPP_PAID_TEMP
 import { exportDatabaseJSON, importDatabaseJSON, resetDatabaseToDefaults, restoreDatabaseData, validateBackupSchema } from '../db/backup';
 import { isSentryEnabled, setSentryEnabled } from '../utils/sentry';
 import { RestoreSheetModal } from '../components/RestoreSheetModal';
+import { SubscriptionCheckoutModal } from '../components/SubscriptionCheckoutModal';
 import { testGoogleSheetsConnection, fetchGoogleSheetBackup, triggerManualSync, extractSpreadsheetId, scheduleAutoSync } from '../utils/googleSheetsSync';
 import { normalizeEventTypes } from '../utils/eventTypeUtils';
 import { 
@@ -125,6 +126,8 @@ export function SettingsPage() {
 
   const subStatus = calculateSubscriptionStatus(subscriptionConfig, billsTotalCount);
 
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
+  const [selectedCheckoutTier, setSelectedCheckoutTier] = useState('pro');
   const [licenseInput, setLicenseInput] = useState('');
   const [licenseActivating, setLicenseActivating] = useState(false);
   const [licenseFeedback, setLicenseFeedback] = useState(null);
@@ -3682,14 +3685,14 @@ function doGet(e) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-              <Key className="w-5 h-5" />
+              <CreditCard className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-100">
-                Studio Subscription & Features
+                Studio Subscription & Payment Plans
               </h3>
               <p className="text-xs text-slate-400">
-                Active commercial license plan, granted studio modules, and license renewal
+                Choose a subscription model, complete UPI payment, and unlock studio features instantly
               </p>
             </div>
           </div>
@@ -3705,6 +3708,16 @@ function doGet(e) {
             }`}>
               {subStatus.planName || PLAN_TIERS[subStatus.planTier]?.name || 'Pro Studio Suite'}
             </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCheckoutTier(subStatus.planTier === 'pro' ? 'enterprise' : 'pro');
+                setCheckoutModalOpen(true);
+              }}
+              className="px-3 py-1 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition shadow-sm cursor-pointer"
+            >
+              Upgrade / Pay
+            </button>
           </div>
         </div>
 
@@ -3747,6 +3760,94 @@ function doGet(e) {
           </div>
         </div>
 
+        {/* Subscription Models & Pricing Grid */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Subscription Models & Direct Payment
+            </h4>
+            <span className="text-[11px] text-slate-400">
+              Select any plan and pay via instant UPI QR or Bank
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {Object.keys(PLAN_TIERS).map((tierKey) => {
+              const tier = PLAN_TIERS[tierKey];
+              const isCurrent = subStatus.planTier === tierKey && !subStatus.isLocked;
+              const isHighlight = tierKey === 'pro';
+
+              return (
+                <div
+                  key={tierKey}
+                  className={`rounded-2xl border p-4 flex flex-col justify-between transition-all relative ${
+                    isCurrent
+                      ? 'bg-amber-500/10 border-amber-500/50 shadow-md shadow-amber-500/10'
+                      : isHighlight
+                      ? 'bg-slate-900/70 border-amber-500/30'
+                      : 'bg-slate-950/60 border-slate-800/80'
+                  }`}
+                >
+                  {isHighlight && !isCurrent && (
+                    <span className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[9px] font-extrabold uppercase tracking-wider shadow">
+                      Recommended
+                    </span>
+                  )}
+                  {isCurrent && (
+                    <span className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-extrabold uppercase tracking-wider shadow">
+                      Current Plan
+                    </span>
+                  )}
+
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                        {tier.badge}
+                      </span>
+                      <h5 className="text-sm font-bold text-slate-100">
+                        {tier.name}
+                      </h5>
+                    </div>
+
+                    <div className="pt-1">
+                      <span className="text-xl font-extrabold text-amber-400 font-mono">
+                        {tier.priceFormatted || (tier.price === 0 ? 'Free' : `₹ ${tier.price}`)}
+                      </span>
+                      <span className="text-[11px] text-slate-400 block">
+                        {tier.billingPeriod}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      {tier.description}
+                    </p>
+                  </div>
+
+                  <div className="pt-4">
+                    {isCurrent ? (
+                      <div className="w-full py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-center text-xs font-bold flex items-center justify-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Active</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCheckoutTier(tierKey);
+                          setCheckoutModalOpen(true);
+                        }}
+                        className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition shadow-sm cursor-pointer"
+                      >
+                        {tier.price === 0 ? 'Try Free' : `Pay ${tier.priceFormatted}`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Feature Entitlements Matrix */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
@@ -3754,7 +3855,7 @@ function doGet(e) {
               Granted Studio Features
             </h4>
             <span className="text-[11px] text-slate-400">
-              Features authorized by your license key
+              Features authorized by your active subscription
             </span>
           </div>
 
@@ -3797,16 +3898,16 @@ function doGet(e) {
           </div>
         </div>
 
-        {/* License Key Activation Box */}
+        {/* Offline License Key Activation Box */}
         <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800 space-y-3">
           <div className="flex items-center gap-2">
             <Key className="w-4 h-4 text-amber-400" />
             <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-              Activate License Key
+              Activate License Key (Offline Air-Gapped)
             </h4>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            Paste a signed cryptographic license key provided by your software administrator to upgrade tiers, renew duration, or unlock custom studio features.
+            If you have an offline enterprise license key from support, paste it here to activate without online payment.
           </p>
 
           <form onSubmit={handleActivateLicense} className="space-y-3">
@@ -3983,6 +4084,14 @@ function doGet(e) {
         onClose={() => setShowRestoreModal(false)}
         backupInfo={backupInfo}
         onConfirmRestore={handleConfirmRestore}
+      />
+      <SubscriptionCheckoutModal
+        isOpen={checkoutModalOpen}
+        onClose={() => setCheckoutModalOpen(false)}
+        selectedTier={selectedCheckoutTier}
+        onPlanActivated={() => {
+          setCheckoutModalOpen(false);
+        }}
       />
       <SupabaseAuthModal
         isOpen={isSupabaseAuthOpen}

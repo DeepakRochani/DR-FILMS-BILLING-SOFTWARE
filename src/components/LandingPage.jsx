@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Clapperboard, 
   Receipt, 
@@ -16,10 +16,15 @@ import {
   Layers, 
   Users, 
   FileSpreadsheet,
-  ChevronRight
+  ChevronRight,
+  CreditCard
 } from 'lucide-react';
+import { PLAN_TIERS } from '../utils/licenseManager';
+import { SubscriptionCheckoutModal } from './SubscriptionCheckoutModal';
 
 export function LandingPage({ onLogin, onEnterApp }) {
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [selectedTier, setSelectedTier] = useState('pro');
   const features = [
     {
       title: 'Tax & GST Invoices',
@@ -200,6 +205,105 @@ export function LandingPage({ onLogin, onEnterApp }) {
         </div>
       </section>
 
+      {/* Subscription Plans & Pricing Section */}
+      <section className="py-16 px-6 max-w-6xl mx-auto w-full">
+        <div className="text-center max-w-2xl mx-auto mb-12">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-semibold mb-3">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Simple, Transparent Pricing</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Choose Your Studio Subscription Plan
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-2">
+            Instant activation with UPI QR. No long-term lock-in, no hidden per-seat fees.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Object.keys(PLAN_TIERS).map((key) => {
+            const plan = PLAN_TIERS[key];
+            const isHighlight = key === 'pro';
+            return (
+              <div
+                key={key}
+                className={`rounded-2xl border p-6 flex flex-col justify-between transition-all relative ${
+                  isHighlight
+                    ? 'bg-gradient-to-b from-amber-500/15 via-slate-900 to-slate-900 border-amber-500/50 shadow-xl shadow-amber-500/10'
+                    : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {isHighlight && (
+                  <span className="absolute -top-3 right-5 px-3 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-extrabold uppercase tracking-wider shadow-md">
+                    Most Popular
+                  </span>
+                )}
+
+                <div className="space-y-4">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      {plan.badge}
+                    </span>
+                    <h3 className="text-base font-bold text-white mt-0.5">
+                      {plan.name}
+                    </h3>
+                  </div>
+
+                  <div className="pt-1">
+                    <span className="text-2xl sm:text-3xl font-extrabold text-amber-400 font-mono">
+                      {plan.priceFormatted}
+                    </span>
+                    <span className="text-xs text-slate-400 block mt-0.5">
+                      {plan.billingPeriod}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {plan.description}
+                  </p>
+
+                  <div className="pt-2 border-t border-slate-800 space-y-2 text-xs text-slate-300">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{plan.maxBills ? `Up to ${plan.maxBills} Invoices` : 'Unlimited Invoices'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{plan.maxClients ? `Up to ${plan.maxClients} Clients` : 'Unlimited Clients'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{key === 'trial' ? 'Standard Features' : 'Full Suite of 12 Modules'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Instant UPI Payment & Activation</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTier(key);
+                      setCheckoutOpen(true);
+                    }}
+                    className={`w-full py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow-md ${
+                      isHighlight
+                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {plan.price === 0 ? 'Start Free Trial' : `Subscribe (${plan.priceFormatted})`}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Multi-Tenant Security Section */}
       <section className="py-12 px-6 bg-slate-900/40 border-y border-slate-800/80">
         <div className="max-w-4xl mx-auto rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/5 via-slate-900/90 to-slate-900/60 p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -261,6 +365,17 @@ export function LandingPage({ onLogin, onEnterApp }) {
           </div>
         </div>
       </footer>
+
+      {/* Subscription Payment Checkout Modal */}
+      <SubscriptionCheckoutModal
+        isOpen={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        selectedTier={selectedTier}
+        onPlanActivated={() => {
+          setCheckoutOpen(false);
+          if (onEnterApp) onEnterApp();
+        }}
+      />
     </div>
   );
 }

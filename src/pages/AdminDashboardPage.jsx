@@ -37,7 +37,8 @@ import {
   Sliders,
   CheckCircle2,
   Settings,
-  UserPlus
+  UserPlus,
+  CreditCard
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -109,6 +110,22 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
         return item?.data || [];
       } catch (err) {
         console.warn('Could not load customer directory:', err);
+        return [];
+      }
+    },
+    [],
+    []
+  );
+
+  // Subscription Payment Orders (persisted in Dexie settings)
+  const subscriptionPaymentsRecord = useLiveQuery(
+    async () => {
+      if (!db.settings) return [];
+      try {
+        const item = await db.settings.get('admin_subscription_payments');
+        return item?.data || [];
+      } catch (err) {
+        console.warn('Could not load subscription payments:', err);
         return [];
       }
     },
@@ -1657,6 +1674,58 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                 </div>
               )}
             </div>
+
+            {/* Subscription Payments & Orders Received */}
+            {subscriptionPaymentsRecord?.length > 0 && (
+              <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 sm:p-6 shadow-xl backdrop-blur-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider">
+                      Recent Subscription Payments ({subscriptionPaymentsRecord.length})
+                    </h3>
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    Auto-recorded from customer checkout
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto no-scrollbar">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                        <th className="pb-2.5">Order ID</th>
+                        <th className="pb-2.5">Plan Model</th>
+                        <th className="pb-2.5">Amount</th>
+                        <th className="pb-2.5">Payment Method</th>
+                        <th className="pb-2.5">UTR / Reference</th>
+                        <th className="pb-2.5">Paid Date</th>
+                        <th className="pb-2.5 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono text-slate-300">
+                      {subscriptionPaymentsRecord.map((ord) => (
+                        <tr key={ord.orderId} className="hover:bg-slate-800/30 transition">
+                          <td className="py-2.5 text-amber-400 font-bold">{ord.orderId}</td>
+                          <td className="py-2.5 font-sans font-semibold text-slate-200">{ord.planName || ord.planTier?.toUpperCase()}</td>
+                          <td className="py-2.5 text-emerald-400 font-bold">₹ {ord.amount?.toLocaleString('en-IN') || 0}</td>
+                          <td className="py-2.5 text-slate-400">{ord.paymentMethod || 'UPI'}</td>
+                          <td className="py-2.5 text-slate-300 font-bold select-all">{ord.transactionRef || 'N/A'}</td>
+                          <td className="py-2.5 text-slate-400 text-[11px] font-sans">
+                            {ord.paidAt ? new Date(ord.paidAt).toLocaleDateString('en-IN') : 'Recent'}
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-sans font-bold">
+                              Paid
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -25,6 +25,9 @@ export const PLAN_TIERS = {
     id: 'trial',
     name: 'Free Trial',
     badge: 'Trial',
+    price: 0,
+    priceFormatted: 'Free',
+    billingPeriod: '14 Days',
     maxBills: 25,
     maxClients: 15,
     durationDays: 14,
@@ -34,6 +37,9 @@ export const PLAN_TIERS = {
     id: 'starter',
     name: 'Starter Studio',
     badge: 'Starter',
+    price: 2499,
+    priceFormatted: '₹ 2,499',
+    billingPeriod: 'Yearly',
     maxBills: 500,
     maxClients: 100,
     durationDays: 365,
@@ -43,6 +49,9 @@ export const PLAN_TIERS = {
     id: 'pro',
     name: 'Pro Studio Suite',
     badge: 'Pro Suite',
+    price: 4999,
+    priceFormatted: '₹ 4,999',
+    billingPeriod: 'Yearly',
     maxBills: null,
     maxClients: null,
     durationDays: 365,
@@ -52,6 +61,9 @@ export const PLAN_TIERS = {
     id: 'enterprise',
     name: 'Enterprise / Lifetime',
     badge: 'Lifetime',
+    price: 9999,
+    priceFormatted: '₹ 9,999',
+    billingPeriod: 'One-Time',
     maxBills: null,
     maxClients: null,
     durationDays: null,
@@ -318,6 +330,115 @@ export function calculateSubscriptionStatus(subscriptionConfig, invoiceCount = 0
     };
   }
 
+  // 3b. Active Payment-Verified Subscription (Direct Payment Subscription - No token needed!)
+  if (subscriptionConfig?.status === 'active' && !rawKey) {
+    const planTier = subscriptionConfig?.planTier || 'pro';
+    const planInfo = PLAN_TIERS[planTier] || PLAN_TIERS.pro;
+    const allowedFeatures = Array.isArray(subscriptionConfig?.allowedFeatures) ? subscriptionConfig.allowedFeatures : ['*'];
+
+    if (subscriptionConfig?.isLifetime || planTier === 'enterprise') {
+      return {
+        isLocked: false,
+        status: 'active',
+        planTier: 'enterprise',
+        planName: 'Enterprise / Lifetime',
+        isLifetime: true,
+        daysRemaining: 9999,
+        formattedExpiry: 'Permanent Lifetime Access',
+        billsRemaining: null,
+        reason: null,
+        lockReason: null,
+        lockReasonCode: null,
+        allowedFeatures,
+        customerName: subscriptionConfig?.clientStudioName || 'Studio Billing',
+        paymentMethod: subscriptionConfig?.paymentDetails?.paymentMethod || 'UPI',
+        paidAmount: subscriptionConfig?.paymentDetails?.amount
+      };
+    }
+
+    if (subscriptionConfig?.expiryDate) {
+      const now = new Date();
+      const expiryDateStr = subscriptionConfig.expiryDate;
+      const targetExpiry = new Date(expiryDateStr + 'T23:59:59');
+      const diffMs = targetExpiry.getTime() - now.getTime();
+      const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+      if (subscriptionConfig?.billLimit && invoiceCount >= subscriptionConfig.billLimit) {
+        const reasonText = `Plan bill limit reached (${invoiceCount} of ${subscriptionConfig.billLimit} bills created). Please upgrade your subscription.`;
+        return {
+          isLocked: true,
+          status: 'expired',
+          planTier,
+          planName: planInfo.name,
+          isLifetime: false,
+          daysRemaining: Math.max(0, daysRemaining),
+          formattedExpiry: expiryDateStr,
+          billsRemaining: 0,
+          reason: reasonText,
+          lockReason: reasonText,
+          lockReasonCode: 'BILL_LIMIT_REACHED',
+          allowedFeatures,
+          customerName: subscriptionConfig?.clientStudioName
+        };
+      }
+
+      if (daysRemaining < 0) {
+        const overdueDays = Math.abs(daysRemaining);
+        const graceDays = subscriptionConfig?.gracePeriodDays ?? 3;
+        if (overdueDays <= graceDays) {
+          const reasonText = `Your subscription expired on ${expiryDateStr}. You are currently in a ${graceDays}-day grace period.`;
+          return {
+            isLocked: false,
+            isGracePeriod: true,
+            status: 'grace_period',
+            planTier,
+            planName: planInfo.name,
+            isLifetime: false,
+            daysRemaining: 0,
+            formattedExpiry: expiryDateStr,
+            billsRemaining: null,
+            reason: reasonText,
+            allowedFeatures,
+            customerName: subscriptionConfig?.clientStudioName
+          };
+        }
+
+        const reasonText = `Your ${planInfo.name} subscription expired on ${expiryDateStr}. Please renew your payment subscription to continue.`;
+        return {
+          isLocked: true,
+          status: 'expired',
+          planTier,
+          planName: planInfo.name,
+          isLifetime: false,
+          daysRemaining: 0,
+          formattedExpiry: expiryDateStr,
+          billsRemaining: 0,
+          reason: reasonText,
+          lockReason: reasonText,
+          lockReasonCode: 'EXPIRED',
+          allowedFeatures,
+          customerName: subscriptionConfig?.clientStudioName
+        };
+      }
+
+      return {
+        isLocked: false,
+        status: 'active',
+        planTier,
+        planName: planInfo.name,
+        isLifetime: false,
+        daysRemaining,
+        formattedExpiry: expiryDateStr,
+        billsRemaining: subscriptionConfig?.billLimit ? Math.max(0, subscriptionConfig.billLimit - invoiceCount) : null,
+        reason: null,
+        lockReason: null,
+        lockReasonCode: null,
+        allowedFeatures,
+        customerName: subscriptionConfig?.clientStudioName
+      };
+    }
+  }
+
   // 4. No signed license key -> 14-day / 25-bill Free Trial
   const trialStartStr = subscriptionConfig?.trialStartDate || subscriptionConfig?.startDate || new Date().toISOString().split('T')[0];
   const trialMaxBills = subscriptionConfig?.trialMaxBills || 25;
@@ -454,6 +575,89 @@ export async function activateWithLicenseKey(keyString) {
     expiryDate: payload.expiryDate || 'Permanent / Lifetime',
     isLifetime: payload.isLifetime,
     allowedFeatures: payload.allowedFeatures || ['*']
+  };
+}
+
+/**
+ * Activates a subscription directly via payment confirmation without requiring any manual token string.
+ */
+export async function activateSubscriptionWithPayment({
+  planTier = 'pro',
+  durationDays = 365,
+  isLifetime = false,
+  paymentMethod = 'UPI',
+  transactionRef = '',
+  amount = 0,
+  allowedFeatures = ['*'],
+  customerName = 'Studio Billing'
+}) {
+  const planInfo = PLAN_TIERS[planTier] || PLAN_TIERS.pro;
+  const isPerpetual = Boolean(isLifetime || planTier === 'enterprise');
+  
+  let expiryDate = null;
+  if (!isPerpetual) {
+    const days = durationDays || planInfo.durationDays || 365;
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + days);
+    expiryDate = expiry.toISOString().split('T')[0];
+  }
+
+  const current = (await db.settings.get('admin_subscription_config')) || {};
+  
+  const paymentOrder = {
+    orderId: 'ORD-' + Date.now().toString(36).toUpperCase(),
+    planTier,
+    planName: planInfo.name,
+    amount: amount || planInfo.price || 0,
+    paymentMethod,
+    transactionRef: transactionRef || 'DIRECT_CONFIRMED',
+    paidAt: new Date().toISOString(),
+    status: 'completed'
+  };
+
+  const updatedConfig = {
+    ...current,
+    key: 'admin_subscription_config',
+    clientStudioName: customerName || current.clientStudioName || 'Studio Billing',
+    planTier,
+    status: 'active',
+    expiryDate,
+    isLifetime: isPerpetual,
+    licenseKey: null,
+    billLimit: planInfo.maxBills || null,
+    allowedFeatures: Array.isArray(allowedFeatures) ? allowedFeatures : ['*'],
+    lastRenewedAt: new Date().toISOString(),
+    paymentDetails: paymentOrder
+  };
+
+  await db.settings.put(updatedConfig);
+
+  try {
+    const existingPaymentsRecord = (await db.settings.get('admin_subscription_payments')) || { key: 'admin_subscription_payments', data: [] };
+    const paymentsList = Array.isArray(existingPaymentsRecord.data) ? existingPaymentsRecord.data : [];
+    paymentsList.unshift(paymentOrder);
+    await db.settings.put({
+      key: 'admin_subscription_payments',
+      data: paymentsList.slice(0, 50)
+    });
+  } catch (err) {
+    console.warn('Could not save subscription payment history:', err);
+  }
+
+  await logAuditEvent({
+    category: AUDIT_CATEGORIES.SUBSCRIPTION,
+    action: isPerpetual ? 'SUBSCRIPTION_LIFETIME_PAID' : 'SUBSCRIPTION_PAYMENT_ACTIVATED',
+    username: 'studio_user',
+    details: `Subscription activated via ${paymentMethod} payment for ${planInfo.name}. Amount: ₹${paymentOrder.amount}. Ref: ${paymentOrder.transactionRef}`
+  });
+
+  return {
+    success: true,
+    planTier,
+    planName: planInfo.name,
+    isLifetime: isPerpetual,
+    expiryDate: isPerpetual ? 'Never' : expiryDate,
+    orderId: paymentOrder.orderId
   };
 }
 
