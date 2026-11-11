@@ -43,7 +43,7 @@ import {
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
 import { getSupabase } from '../config/supabase';
-import { PLAN_TIERS } from '../utils/licenseManager';
+import { PLAN_TIERS, activateSubscriptionWithPayment } from '../utils/licenseManager';
 import { 
   generateLicenseKeyAsync, 
   generateSignedRevocationList, 
@@ -349,6 +349,180 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
       setIssueNotice({ type: 'error', text: 'License generation failed: ' + err.message });
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // Direct 1-Click Activation of Subscription Model on Current Studio Workspace (No private key required)
+  const handleDirectActivateSubscriptionModel = async () => {
+    setIsGenerating(true);
+    setIssueNotice(null);
+    try {
+      const allowedFeaturesPayload = selectedFeatures.length === FEATURE_MODULES.length ? ['*'] : selectedFeatures;
+      const targetCustomer = customerName.trim() || 'Studio Billing';
+
+      // 1. Update feature flags in Dexie settings
+      const currentFlags = (await db.settings.get('admin_feature_flags')) || {};
+      const newFlags = {
+        ...currentFlags,
+        key: 'admin_feature_flags'
+      };
+      FEATURE_MODULES.forEach(m => {
+        newFlags[m.key] = selectedFeatures.includes(m.key);
+      });
+      await db.settings.put(newFlags);
+
+      // 2. Activate subscription model in settings
+      const isPerpetual = Boolean(isLifetime || planTier === 'enterprise');
+      await activateSubscriptionWithPayment({
+        planTier,
+        durationDays: isPerpetual ? 0 : Number(durationDays),
+        isLifetime: isPerpetual,
+        paymentMethod: 'ADMIN_DIRECT',
+        transactionRef: 'ADMIN_MANUAL_' + Date.now().toString(36).toUpperCase(),
+        amount: PLAN_TIERS[planTier]?.price || 0,
+        allowedFeatures: allowedFeaturesPayload,
+        customerName: targetCustomer
+      });
+
+      // 3. Update customer directory
+      const newCustomerItem = {
+        id: 'CUST-' + Date.now().toString(36).toUpperCase(),
+        customerName: targetCustomer,
+        planTier,
+        isLifetime: isPerpetual,
+        issueDate: new Date().toISOString().split('T')[0],
+        expiryDate: isPerpetual ? null : new Date(Date.now() + (Number(durationDays) || 365) * 86400000).toISOString().split('T')[0],
+        billLimit: billLimit !== '' && !isNaN(Number(billLimit)) ? Number(billLimit) : (PLAN_TIERS[planTier]?.maxBills || null),
+        allowedFeatures: allowedFeaturesPayload,
+        licenseKey: null,
+        notes: planNotes.trim() || 'Directly activated from Admin Control Portal',
+        createdAt: new Date().toISOString()
+      };
+      const existing = (await db.settings.get('admin_customer_directory'))?.data || [];
+      const updated = [newCustomerItem, ...existing.filter(c => c.customerName !== newCustomerItem.customerName)];
+      await db.settings.put({ key: 'admin_customer_directory', data: updated });
+
+      setIssueNotice({
+        type: 'success',
+        text: `Active Subscription Model (${PLAN_TIERS[planTier]?.name || planTier}) with ${selectedFeatures.length} feature(s) successfully activated on this Studio Workspace!`
+      });
+    } catch (err) {
+      setIssueNotice({ type: 'error', text: 'Direct activation failed: ' + err.message });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Save Customer Profile & Selected Features to Directory Only
+  const handleSaveToDirectoryOnly = async () => {
+    if (!customerName.trim()) {
+      setIssueNotice({ type: 'error', text: 'Customer / Studio Name is required.' });
+      return;
+    }
+    try {
+      const allowedFeaturesPayload = selectedFeatures.length === FEATURE_MODULES.length ? ['*'] : selectedFeatures;
+      const isPerpetual = Boolean(isLifetime || planTier === 'enterprise');
+      const newCustomerItem = {
+        id: 'CUST-' + Date.now().toString(36).toUpperCase(),
+        customerName: customerName.trim(),
+        planTier,
+        isLifetime: isPerpetual,
+        issueDate: new Date().toISOString().split('T')[0],
+        expiryDate: isPerpetual ? null : new Date(Date.now() + (Number(durationDays) || 365) * 86400000).toISOString().split('T')[0],
+        billLimit: billLimit !== '' && !isNaN(Number(billLimit)) ? Number(billLimit) : (PLAN_TIERS[planTier]?.maxBills || null),
+        allowedFeatures: allowedFeaturesPayload,
+        licenseKey: null,
+        notes: planNotes.trim(),
+        createdAt: new Date().toISOString()
+      };
+      const existing = (await db.settings.get('admin_customer_directory'))?.data || [];
+      const updated = [newCustomerItem, ...existing.filter(c => c.customerName !== newCustomerItem.customerName)];
+      await db.settings.put({ key: 'admin_customer_directory', data: updated });
+      setIssueNotice({
+        type: 'success',
+        text: `Saved ${customerName.trim()} to Customer Directory with ${selectedFeatures.length} manual feature(s).`
+      });
+    } catch (err) {
+      setIssueNotice({ type: 'error', text: 'Failed to save customer: ' + err.message });
+    }
+  };
+
+  // Cache busting and force reload for admin portal
+  const handleForceRefresh = async () => {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) {
+          await reg.unregister();
+        }
+      } catch {}
+    }
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      try {
+        const keys = await window.caches.keys();
+        for (const k of keys) {
+          await window.caches.delete(k);
+        }
+      } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      window.location.reload(true);
+    }
+  };
+
+  // Approve a customer payment and activate their subscription model
+  const handleApprovePaymentOrder = async (order) => {
+    try {
+      const targetPlan = order.planTier || 'pro';
+      const isPerpetual = Boolean(order.isLifetime || targetPlan === 'enterprise');
+      const planInfo = PLAN_TIERS[targetPlan] || PLAN_TIERS.pro;
+      
+      await activateSubscriptionWithPayment({
+        planTier: targetPlan,
+        durationDays: isPerpetual ? 0 : 365,
+        isLifetime: isPerpetual,
+        paymentMethod: order.paymentMethod || 'UPI',
+        transactionRef: order.transactionRef || order.orderId,
+        amount: order.amount || planInfo.price || 0,
+        allowedFeatures: ['*'],
+        customerName: order.customerName || 'Studio Customer'
+      });
+
+      const existingPaymentsRecord = (await db.settings.get('admin_subscription_payments')) || { key: 'admin_subscription_payments', data: [] };
+      const paymentsList = Array.isArray(existingPaymentsRecord.data) ? existingPaymentsRecord.data : [];
+      const updatedPayments = paymentsList.map(p => {
+        if (p.orderId === order.orderId) {
+          return { ...p, status: 'approved', approvedAt: new Date().toISOString() };
+        }
+        return p;
+      });
+      await db.settings.put({ key: 'admin_subscription_payments', data: updatedPayments });
+
+      const existingCust = (await db.settings.get('admin_customer_directory'))?.data || [];
+      const foundIndex = existingCust.findIndex(c => c.customerName === (order.customerName || 'Studio Customer'));
+      if (foundIndex >= 0) {
+        existingCust[foundIndex].planTier = targetPlan;
+        existingCust[foundIndex].isLifetime = isPerpetual;
+        existingCust[foundIndex].notes = `Approved payment ${order.orderId} (UTR: ${order.transactionRef})`;
+        existingCust[foundIndex].updatedAt = new Date().toISOString();
+      } else {
+        existingCust.unshift({
+          id: order.orderId,
+          customerName: order.customerName || 'Studio Customer',
+          planTier: targetPlan,
+          isLifetime: isPerpetual,
+          issueDate: new Date().toISOString().split('T')[0],
+          expiryDate: isPerpetual ? null : new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0],
+          allowedFeatures: ['*'],
+          licenseKey: null,
+          notes: `Approved payment ${order.orderId} (UTR: ${order.transactionRef})`,
+          createdAt: new Date().toISOString()
+        });
+      }
+      await db.settings.put({ key: 'admin_customer_directory', data: existingCust });
+      alert(`Payment ${order.orderId} approved and subscription model activated!`);
+    } catch (err) {
+      alert('Error approving payment: ' + err.message);
     }
   };
 
@@ -883,14 +1057,28 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 uppercase tracking-widest hidden sm:inline-block">
                 Master Deck
               </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 hidden md:inline-block">
+                v2.5.0
+              </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Owner Licensing, Customer Directory & Revocation Center
+              Subscription Models, Manual Feature Management & Live Payments
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Force Refresh & Purge Cache */}
+          <button
+            type="button"
+            onClick={handleForceRefresh}
+            className="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 text-amber-300 hover:text-amber-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700/80 transition-all cursor-pointer shadow-sm"
+            title="Clear browser & service worker caches and reload Admin Portal"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Force Refresh</span>
+          </button>
+
           {/* Key Status Pill */}
           <div className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 shadow-sm ${
             privateKeyInMemory 
@@ -1151,15 +1339,20 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
 
                   {/* Plan Tier Selector Cards */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-2">
-                      Subscription Plan Model
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-semibold text-slate-300">
+                        Select Subscription Plan Model
+                      </label>
+                      <span className="text-[10px] text-amber-400 font-medium">
+                        Payment & Direct Activation
+                      </span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {[
-                        { id: 'trial', title: 'Free Trial', desc: '14-Day evaluation', limit: '25 Invoices max' },
-                        { id: 'starter', title: 'Starter Studio', desc: 'Annual core features', limit: '500 Invoices / yr' },
-                        { id: 'pro', title: 'Pro Studio Suite', desc: 'Annual full suite', limit: 'Unlimited Invoices' },
-                        { id: 'enterprise', title: 'Perpetual Lifetime', desc: 'Lifetime unmetered', limit: 'Never expires' }
+                        { id: 'trial', title: 'Free Trial', price: '₹ 0', desc: '14-Day evaluation', limit: '25 Invoices max' },
+                        { id: 'starter', title: 'Starter Studio', price: '₹ 2,499 / yr', desc: 'Annual core features', limit: '500 Invoices / yr' },
+                        { id: 'pro', title: 'Pro Studio Suite', price: '₹ 4,999 / yr', desc: 'Annual full suite (Popular)', limit: 'Unlimited Invoices' },
+                        { id: 'enterprise', title: 'Perpetual Lifetime', price: '₹ 9,999', desc: 'Lifetime unmetered', limit: 'Never expires' }
                       ].map((t) => {
                         const isSelected = planTier === t.id;
                         return (
@@ -1168,7 +1361,7 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                             onClick={() => handlePlanTierChange(t.id)}
                             className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
                               isSelected
-                                ? 'bg-amber-500/15 border-amber-500/60 shadow-md shadow-amber-500/10'
+                                ? 'bg-amber-500/15 border-amber-500/60 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
                                 : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
                             }`}
                           >
@@ -1176,11 +1369,9 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                               <span className={`text-xs font-bold ${isSelected ? 'text-amber-300' : 'text-slate-200'}`}>
                                 {t.title}
                               </span>
-                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                                isSelected ? 'border-amber-400 bg-amber-400' : 'border-slate-700'
-                              }`}>
-                                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-slate-950" />}
-                              </div>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                {t.price}
+                              </span>
                             </div>
                             <span className="text-[11px] text-slate-400 block">{t.desc}</span>
                             <span className="text-[10px] text-amber-400/80 font-mono mt-1 block">{t.limit}</span>
@@ -1344,14 +1535,40 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                     </div>
                   )}
 
-                  <button
-                    type="submit"
-                    disabled={isGenerating || !privateKeyInMemory}
-                    className="w-full py-3 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 text-xs font-extrabold uppercase tracking-widest rounded-2xl shadow-lg shadow-amber-500/20 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Key className="w-4 h-4" />
-                    <span>{isGenerating ? 'Signing License Key...' : 'Generate Signed License Key'}</span>
-                  </button>
+                  {/* Action Execution Center: 1-Click Activate, Save Customer, or Generate Offline Key */}
+                  <div className="space-y-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleDirectActivateSubscriptionModel}
+                      disabled={isGenerating}
+                      className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 text-xs font-extrabold uppercase tracking-widest rounded-2xl shadow-xl shadow-amber-500/25 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 text-slate-950" />
+                      <span>{isGenerating ? 'Activating...' : '1-Click Activate Model on Current Studio'}</span>
+                    </button>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={handleSaveToDirectoryOnly}
+                        disabled={isGenerating}
+                        className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Save to Customer Directory</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isGenerating || !privateKeyInMemory}
+                        className="py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-amber-300 text-xs font-bold rounded-xl border border-amber-500/30 hover:border-amber-500/50 transition flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={privateKeyInMemory ? 'Issue ECDSA P-256 License' : 'Load Private Key in RAM above to generate signed license'}
+                      >
+                        <Key className="w-3.5 h-3.5" />
+                        <span>{isGenerating ? 'Signing...' : 'Generate Signed License Key'}</span>
+                      </button>
+                    </div>
+                  </div>
                 </form>
               </div>
 
@@ -1639,6 +1856,41 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
+                                  onClick={async () => {
+                                    try {
+                                      const rawAllowed = cust.allowedFeatures;
+                                      const feats = (!rawAllowed || rawAllowed.includes('*')) ? FEATURE_MODULES.map(f => f.key) : rawAllowed;
+                                      
+                                      const currentFlags = (await db.settings.get('admin_feature_flags')) || {};
+                                      const newFlags = { ...currentFlags, key: 'admin_feature_flags' };
+                                      FEATURE_MODULES.forEach(m => {
+                                        newFlags[m.key] = feats.includes(m.key);
+                                      });
+                                      await db.settings.put(newFlags);
+
+                                      await activateSubscriptionWithPayment({
+                                        planTier: cust.planTier || 'pro',
+                                        durationDays: cust.isLifetime ? 0 : 365,
+                                        isLifetime: Boolean(cust.isLifetime || cust.planTier === 'enterprise'),
+                                        paymentMethod: 'ADMIN_DIRECT',
+                                        transactionRef: 'APPLY_CUST_' + cust.id,
+                                        amount: 0,
+                                        allowedFeatures: feats,
+                                        customerName: cust.customerName
+                                      });
+                                      alert(`Activated ${cust.customerName}'s plan and features on local workspace!`);
+                                    } catch (err) {
+                                      alert('Error applying: ' + err.message);
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                                  title="Activate this customer's plan & features on current workspace"
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                  <span>Apply</span>
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleOpenFeatureModal(cust)}
                                   className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
                                   title="Manage features & subscription manually"
@@ -1700,7 +1952,8 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                         <th className="pb-2.5">Payment Method</th>
                         <th className="pb-2.5">UTR / Reference</th>
                         <th className="pb-2.5">Paid Date</th>
-                        <th className="pb-2.5 text-right">Status</th>
+                        <th className="pb-2.5">Status</th>
+                        <th className="pb-2.5 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono text-slate-300">
@@ -1714,10 +1967,42 @@ export function AdminDashboardPage({ onReturnToBilling, onAdminLogout }) {
                           <td className="py-2.5 text-slate-400 text-[11px] font-sans">
                             {ord.paidAt ? new Date(ord.paidAt).toLocaleDateString('en-IN') : 'Recent'}
                           </td>
-                          <td className="py-2.5 text-right">
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-sans font-bold">
-                              Paid
+                          <td className="py-2.5">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-sans font-bold border ${
+                              ord.status === 'approved'
+                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                            }`}>
+                              {ord.status === 'approved' ? 'Approved' : 'Verified'}
                             </span>
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <div className="flex items-center justify-end gap-1.5 font-sans">
+                              {ord.status !== 'approved' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprovePaymentOrder(ord)}
+                                  className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-[10px] font-bold transition cursor-pointer"
+                                  title="Approve payment and activate subscription"
+                                >
+                                  Approve
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenFeatureModal({
+                                  id: ord.orderId,
+                                  customerName: ord.customerName || ord.orderId,
+                                  planTier: ord.planTier || 'pro',
+                                  allowedFeatures: ['*'],
+                                  notes: `Order ${ord.orderId} (UTR: ${ord.transactionRef})`
+                                })}
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-semibold transition cursor-pointer"
+                                title="Manage features for this subscriber"
+                              >
+                                Features
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

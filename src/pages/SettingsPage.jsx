@@ -3718,6 +3718,14 @@ function doGet(e) {
             >
               Upgrade / Pay
             </button>
+            <a
+              href="/admin"
+              className="px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 hover:border-amber-500/40 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              title="Studio Owner Admin Portal"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span>Admin Portal</span>
+            </a>
           </div>
         </div>
 

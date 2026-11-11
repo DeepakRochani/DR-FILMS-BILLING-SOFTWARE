@@ -84,6 +84,9 @@ export default defineConfig(({ mode }) => {
           },
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+            globIgnores: ['**/admin.html', '**/admin-*.js'],
+            navigateFallback: 'index.html',
+            navigateFallbackDenylist: [/^\/admin/, /^\/revoked\.json/],
             maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
             skipWaiting: true,
             clientsClaim: true

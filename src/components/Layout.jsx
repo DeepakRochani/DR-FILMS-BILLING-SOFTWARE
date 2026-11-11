@@ -279,33 +279,31 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
           })}
 
           {/* Admin Master Portal Link for Studio Owner */}
-          {(onOpenAdminPortal || isAdmin) && (
-            <div className="pt-2 mt-2 border-t border-slate-800/60">
-              <a
-                href="/admin"
-                onClick={(e) => {
-                  if (onOpenAdminPortal) {
-                    e.preventDefault();
-                    onOpenAdminPortal();
-                  }
-                }}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
-                  currentTab === 'admin_dashboard'
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-lg shadow-amber-500/10'
-                    : 'bg-slate-900/80 text-slate-300 hover:text-amber-300 hover:border-amber-500/30 hover:bg-slate-800/80 border-slate-800'
-                }`}
-                title="Studio Owner Admin Portal: Issued Licenses & Generated Bills"
-              >
-                <div className="flex items-center gap-2.5">
-                  <ShieldCheck className="w-4 h-4 text-amber-400" />
-                  <span>Admin Portal</span>
-                </div>
-                <span className="text-[10px] font-mono tracking-wider uppercase bg-amber-500/15 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/25">
-                  Master
-                </span>
-              </a>
-            </div>
-          )}
+          <div className="pt-2 mt-2 border-t border-slate-800/60">
+            <a
+              href="/admin"
+              onClick={(e) => {
+                if (onOpenAdminPortal) {
+                  e.preventDefault();
+                  onOpenAdminPortal();
+                }
+              }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
+                currentTab === 'admin_dashboard'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-lg shadow-amber-500/10'
+                  : 'bg-slate-900/80 text-slate-300 hover:text-amber-300 hover:border-amber-500/30 hover:bg-slate-800/80 border-slate-800'
+              }`}
+              title="Studio Owner Admin Portal: Subscription Models, Customer Features & Live Payments"
+            >
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Admin Portal</span>
+              </div>
+              <span className="text-[10px] font-mono tracking-wider uppercase bg-amber-500/15 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/25">
+                Master
+              </span>
+            </a>
+          </div>
         </nav>
 
         {/* Sidebar Footer: Install button & Offline Status */}
@@ -456,6 +454,14 @@ export function Layout({ currentTab, onSelectTab, onNewInvoice, onRequestCloseAp
                 <Download className="w-4 h-4" />
               </button>
             )}
+            <a
+              href="/admin"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border-slate-700 transition-all cursor-pointer"
+              title="Studio Owner Admin Portal"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Admin</span>
+            </a>
             <button
               type="button"
               disabled={isCloudSyncing}
